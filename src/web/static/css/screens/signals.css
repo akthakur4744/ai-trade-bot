@@ -1,0 +1,64 @@
+/* Signal Pipeline — screen-specific styles */
+
+.signal-detail-row {
+    display: none;
+}
+
+.signal-detail-row.expanded {
+    display: table-row;
+}
+
+.signal-detail-row td {
+    padding: var(--space-3) var(--space-4);
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--border-default);
+}
+
+.signal-rationale {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+    font-size: var(--text-sm);
+}
+
+.signal-rationale h4 {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    margin-bottom: var(--space-2);
+}
+
+.signal-rationale ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.signal-rationale li {
+    padding-left: var(--space-4);
+    position: relative;
+    color: var(--text-secondary);
+}
+
+.signal-rationale li::before {
+    content: '\2022';
+    position: absolute;
+    left: 0;
+}
+
+.regime-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+}
+
+.regime-bull { background: var(--color-profit-dim); color: var(--color-profit); }
+.regime-bear { background: var(--color-loss-dim); color: var(--color-loss); }
+.regime-neutral { background: var(--surface-4); color: var(--text-secondary); }

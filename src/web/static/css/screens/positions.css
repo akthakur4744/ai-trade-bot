@@ -1,0 +1,16 @@
+/* Open Positions — screen-specific styles */
+
+.risk-gauges {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: var(--space-4);
+}
+
+.risk-gauge {
+    padding: var(--space-4);
+}
+
+.exit-btn {
+    padding: 3px 10px;
+    font-size: var(--text-xs);
+}

@@ -1,0 +1,125 @@
+# Insight-Alpha 2026 — Default Configuration
+
+# Execution settings
+execution:
+  mode: "paper"  # "paper" or "live"
+  paper:
+    slippage_bps: 5       # Basis points of simulated slippage
+    fill_delay_ms: 100    # Simulated fill delay
+  live:
+    order_type: "MARKET"
+    exchange: "NSE"
+    product: "MIS"        # MIS = Intraday, CNC = Delivery
+
+# Risk guardrails
+risk:
+  max_capital_per_trade: 10000    # INR
+  max_daily_loss: 1000            # INR
+  max_open_positions: 3
+  max_capital_deployed: 30000     # INR
+  per_trade_risk_pct: 0.02        # 2% of capital
+  position_sizing_method: "fixed_pct"  # "fixed_pct", "atr", "kelly"
+
+# Market hours (IST)
+market:
+  open_time: "09:15"
+  close_time: "15:30"
+  timezone: "Asia/Kolkata"
+  scan_interval_minutes: 15  # How often to run the analysis cycle
+
+# Data settings
+data:
+  candle_intervals: ["5minute", "15minute", "day"]
+  lookback_days: 60          # Historical data to fetch
+  rate_limit_per_sec: 3      # Kite API rate limit
+
+# Indicator defaults
+indicators:
+  rsi:
+    period: 14
+    overbought: 70
+    oversold: 30
+  ema:
+    short: 20
+    medium: 50
+    long: 200
+  atr:
+    period: 14
+  macd:
+    fast: 12
+    slow: 26
+    signal: 9
+  bollinger:
+    period: 20
+    std_dev: 2.0
+  vwap:
+    session_reset: true
+  adx:
+    period: 14
+    trend_threshold: 25
+
+# Alpha scoring model
+scoring:
+  weights:
+    news_strength: 0.25
+    signal_alignment: 0.30
+    market_confirmation: 0.25
+    liquidity_score: 0.10
+    risk_penalty: 0.20  # Subtracted
+  # Filtering thresholds (all must pass)
+  filters:
+    min_confidence: 0.65
+    min_market_confirmation: 0.6
+    min_liquidity_score: 0.6
+    max_risk_penalty: 0.4
+  # Ranking weights
+  ranking:
+    confidence: 0.4
+    signal_alignment: 0.3
+    market_confirmation: 0.2
+    news_strength: 0.1
+  # Sentiment decay
+  sentiment_decay_pct: 0.15       # 15% decay
+  sentiment_decay_interval_min: 30  # Every 30 minutes
+  # Macro guard
+  macro_guard_max_bullish: 0.6     # Cap bullish confidence in bear regime
+
+# Agent settings
+agents:
+  model: "claude-sonnet-4-20250514"
+  max_retries: 3
+  timeout_seconds: 30
+  max_tokens: 2048
+
+# Notification settings
+notifications:
+  enabled: true
+  channels: ["telegram"]  # "telegram", "whatsapp"
+
+# Strategies (enable/disable)
+strategies:
+  mean_reversion:
+    enabled: true
+  momentum:
+    enabled: true
+  bollinger_squeeze:
+    enabled: true
+  golden_cross:
+    enabled: true
+  vwap_reversion:
+    enabled: true
+  fundamental_technical:
+    enabled: false  # Needs fundamental data source
+  pairs_trading:
+    enabled: false  # Complex, enable later
+  seasonal:
+    enabled: false  # Calendar-based, enable later
+
+# Database
+database:
+  url: "sqlite:///insight_alpha.db"
+
+# Logging
+logging:
+  level: "INFO"
+  format: "json"

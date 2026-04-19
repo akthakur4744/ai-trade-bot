@@ -1,0 +1,40 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Trading Agent (Paper Mode)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "src.main"],
+      "port": 0,
+      "description": "Main trading agent scheduler — runs analysis cycles every 15 min during market hours (09:15-15:30 IST). Requires KITE_API_KEY, KITE_API_SECRET, ANTHROPIC_API_KEY in .env",
+      "env": {
+        "EXECUTION_MODE": "paper"
+      }
+    },
+    {
+      "name": "Trading Agent (Live Mode)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "src.main"],
+      "port": 0,
+      "description": "Live trading agent — places real orders via Zerodha. Requires CONFIRM_LIVE_TRADING=true. Use only after validating paper trading results.",
+      "env": {
+        "EXECUTION_MODE": "live",
+        "CONFIRM_LIVE_TRADING": "true"
+      }
+    },
+    {
+      "name": "Kite Auth",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["scripts/kite_auth.py"],
+      "port": 0,
+      "description": "Daily Zerodha authentication helper. Run once before market open each day. Caches access token for the session."
+    },
+    {
+      "name": "Backtest CLI",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["scripts/backtest_cli.py", "--strategy", "mean_reversion", "--symbol", "RELIANCE", "--data", "data/RELIANCE_15min.csv"],
+      "port": 0,
+      "description": "Strategy backtesting runner. Edit runtimeArgs to select strategy (mean_reversion, momentum, bollinger_squeeze, golden_cross, vwap_reversion) and data file."
+    }
+  ]
+}
