@@ -157,7 +157,7 @@ Insight-Alpha is a multi-agent AI trading system for Indian equity markets. It c
 | `src/storage/` | SQLAlchemy ORM (7 tables), persistence layer, SQLite/PostgreSQL |
 | `src/feedback/` | Performance tracker, daily reporting |
 | `config/` | YAML configs: default, paper, live, strategies/, watchlist.yaml |
-| `scripts/` | CLI tools: kite_auth.py, backtest_cli.py |
+| `scripts/` | CLI tools: kite_auth.py (manual daily OAuth), kite_auto_login.py (automated via Playwright + External TOTP), install_cron.sh (launchd scheduler), backtest_cli.py |
 | `tests/` | unit/, integration/, backtest/ |
 
 ---

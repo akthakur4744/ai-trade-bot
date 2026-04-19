@@ -151,24 +151,80 @@ Database: SQLite (paper mode) / PostgreSQL (live mode). WAL mode enabled for con
 
 Zerodha requires interactive 2FA every 24 hours (SEBI mandate — cannot be removed). With **External TOTP** enabled in your Kite profile, the full login can be scripted so the agent runs hands-off.
 
-**One-time setup:**
-1. Kite web → Profile → Settings → Account → enable **External 2FA TOTP**. Scan the QR in Google Authenticator / Authy **and copy the 32-char secret**.
-2. Add to `.env` (keep `chmod 600`):
-   ```
-   KITE_USER_ID=your_client_id
-   KITE_PASSWORD=your_password
-   KITE_TOTP_SECRET=the_32_char_secret
-   ```
-3. Install Playwright browser once: `playwright install chromium`.
+### One-time setup
 
-**Daily automation:**
+1. **Enable External TOTP in Kite:** `kite.zerodha.com` → Profile → Settings → **Account** → find **External 2FA TOTP** → Enable. Kite shows a QR + a 32-character secret. Scan the QR in Google Authenticator (or Authy / 1Password) and **copy the secret string below the QR** — you need the raw secret, not the QR URL.
+
+2. **Install deps and Playwright's browser binary:**
+   ```bash
+   pip install -e .
+   playwright install chromium
+   ```
+
+3. **Add credentials to `.env`** (no quotes; keep `chmod 600`):
+   ```
+   KITE_USER_ID=your_client_id           # e.g. YGT823
+   KITE_PASSWORD=your_kite_password
+   KITE_TOTP_SECRET=YOUR_32_CHAR_SECRET  # A–Z and 2–7 only, no 0/1/8/9
+   ```
+   **Check length** — must be 32 characters:
+   ```bash
+   grep KITE_TOTP_SECRET .env | awk -F= '{print length($2)}'
+   ```
+   Beware `0` vs `O` and `1` vs `I/L` confusion when transcribing the secret.
+
+4. **Sanity check the TOTP** — the code this prints must match your authenticator app at the same moment:
+   ```bash
+   .venv/bin/python -c "import pyotp, os; from dotenv import load_dotenv; load_dotenv(); print(pyotp.TOTP(os.environ['KITE_TOTP_SECRET'].strip().upper()).now())"
+   ```
+
+### Daily automation
+
 ```bash
-python scripts/kite_auto_login.py              # headless run; idempotent
-./scripts/install_cron.sh                       # schedule Mon–Fri 08:55 local
-```
-Logs: `~/.insight_alpha/auto_login.log`.
+# One-off run (headless; idempotent — no-op if today's token already cached)
+.venv/bin/python scripts/kite_auto_login.py
 
-**Caveat:** Zerodha's developer terms disallow automated login. Enforcement is rare but the risk (account freeze) is yours. Omit this section to keep using manual dashboard OAuth.
+# Debug run (visible browser; pauses 30s on error so you can inspect)
+.venv/bin/python scripts/kite_auto_login.py --headed
+
+# Install Mon–Fri 08:55 local-time schedule via launchd
+./scripts/install_cron.sh
+
+# Dry-run the schedule immediately
+launchctl start com.insightalpha.kiteauth
+tail -f ~/.insight_alpha/auto_login.log
+
+# Uninstall the schedule
+./scripts/install_cron.sh uninstall
+```
+
+Cache: `~/.insight_alpha/kite_token.json` (today's access_token, reused all day). Logs: `~/.insight_alpha/auto_login.log`.
+
+### How it works
+
+1. Playwright launches Chromium and navigates to your Kite Connect login URL.
+2. Fills user_id + password → submits.
+3. Generates a fresh 6-digit code via `pyotp.TOTP(secret).now()` → submits.
+4. **Intercepts the redirect** to your app's configured callback URL via a Playwright route handler + context-level request/response listeners. This means the login works even if your Kite app's registered redirect URI (e.g. `http://127.0.0.1:8000/...`) isn't reachable — the script captures `request_token` from the URL query string before the browser actually tries to fetch it.
+5. Hands `request_token` to the existing `KiteClient.authenticate()` which exchanges it for an `access_token` and caches it to disk.
+6. `python start.py` / `python -m src.main` then start with zero prompts.
+
+### Security
+
+- `.env` must be `chmod 600` and is already in `.gitignore`.
+- The script normalizes the TOTP secret (strips whitespace/dashes, uppercases, right-pads to a multiple of 8) — it does *not* correct transcription errors like `0`/`O`.
+- On failure, error messages are truncated in the log (`error[:200]`) and do not contain credentials.
+- Two retries max per run, then exits non-zero — so launchd surfaces the failure instead of silently hammering and risking account lockout.
+
+### Caveats
+
+- Automated Kite login violates Zerodha's developer terms. Enforcement is rare but the risk (account freeze) is yours.
+- If Zerodha changes the login-page DOM, the script's selectors may need updating — they target stable attributes (`input[type='text']`, `input[type='password']`, `input[type='number']`, `button[type='submit']`) so drift should be minor.
+- TOTP codes rotate every 30 seconds; if your machine clock is off by more than ~1 minute, codes will be rejected. Sync system time (`sudo sntp -sS time.apple.com` on macOS).
+
+### Skipping this
+
+To keep using manual dashboard OAuth, just don't set `KITE_USER_ID` / `KITE_PASSWORD` / `KITE_TOTP_SECRET`. The rest of the app is unaffected.
 
 ## License
 

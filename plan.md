@@ -111,7 +111,9 @@ ai-trade-agent/
 │       ├── walk_forward.py        # Rolling window validation
 │       └── fixtures/              # Sample OHLCV CSVs
 ├── scripts/
-│   ├── kite_auth.py               # One-time token generation helper
+│   ├── kite_auth.py               # Manual daily token generation helper
+│   ├── kite_auto_login.py         # Automated login via Playwright + External TOTP
+│   ├── install_cron.sh            # Installs launchd schedule for daily auto-login
 │   └── backtest_cli.py            # CLI for backtesting
 ├── pyproject.toml
 ├── .env.example

@@ -127,11 +127,15 @@ python scripts/backtest_cli.py --strategy mean_reversion --period 2y
 python scripts/kite_auth.py
 
 # Kite auto-login (fully automated daily login via External TOTP + headless browser)
-# Requires: External 2FA TOTP enabled in Kite profile, secrets in .env.
+# Requires: External 2FA TOTP enabled in Kite profile; KITE_USER_ID, KITE_PASSWORD,
+# KITE_TOTP_SECRET in .env; `playwright install chromium` run once.
 # ToS caveat: automated Kite login violates Zerodha ToS — use at your own risk.
-python scripts/kite_auto_login.py              # headless
-python scripts/kite_auto_login.py --headed     # debug (visible browser)
-./scripts/install_cron.sh                      # schedule daily at 08:55 local time
+python scripts/kite_auto_login.py              # headless; idempotent (no-op if cached)
+python scripts/kite_auto_login.py --headed     # debug (visible browser; 30s pause on error)
+./scripts/install_cron.sh                      # install launchd schedule (Mon-Fri 08:55 local)
+./scripts/install_cron.sh uninstall            # remove the schedule
+launchctl start com.insightalpha.kiteauth      # dry-run the scheduled job immediately
+tail -f ~/.insight_alpha/auto_login.log        # watch scheduler output
 ```
 
 ## Available Skills (in .claude/skills/)
@@ -148,7 +152,7 @@ Claude Code skills, loaded on-demand for trading analysis:
 ## Important Notes
 
 - Market hours: 09:15 - 15:30 IST
-- Kite tokens expire daily — dashboard handles OAuth manually; `scripts/kite_auto_login.py` + External TOTP automates it fully (launchd at 08:55 local)
+- Kite tokens expire daily (SEBI mandate) — dashboard handles OAuth manually; `scripts/kite_auto_login.py` + External TOTP automates it fully. Script captures `request_token` via Playwright route interception + context request/response listeners, so it works even when the Kite app's configured redirect URI is unreachable. Token cache: `~/.insight_alpha/kite_token.json`.
 - Kite rate limits: 3 req/s (historical), 10 req/s (other)
 - Paper broker never calls Kite order APIs — LTP only for simulated fills
 - Sentiment decay: 15% reduction to news_strength every 30min
