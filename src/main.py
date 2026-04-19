@@ -46,6 +46,9 @@ from src.execution.auto_exit import AutoExitMonitor
 from src.execution.auto_sell import AutoSellManager
 from src.execution.order_manager import OrderManager
 from src.execution.paper_broker import PaperBroker
+from src.feedback.memory_writer import MemoryWriter
+from src.feedback.postmortem_agent import PostmortemAgent
+from src.feedback.postmortem_pipeline import PostmortemPipeline
 from src.models import (
     AutoSellTrigger,
     Direction,
@@ -167,6 +170,14 @@ class TradingEngine:
         # Notifications
         self._telegram = TelegramNotifier()
         self._whatsapp = WhatsAppNotifier()
+
+        # Self-improvement memory pipeline (postmortem → Telegram → memory/*.md)
+        self._postmortem_pipeline = PostmortemPipeline(
+            agent=PostmortemAgent(config.agents),
+            writer=MemoryWriter(),
+            telegram=self._telegram,
+            db=self._db,
+        )
 
         # Start Telegram callback polling for button responses
         if self._telegram.is_configured:
@@ -672,6 +683,19 @@ class TradingEngine:
     def _handle_telegram_callback(self, action: str, signal_id: str) -> None:
         """Handle Telegram inline button callback (runs on polling thread)."""
         logger.info("telegram_action_received", action=action, signal_id=signal_id)
+
+        # Memory-update approval routes: callback_data = "memory_update:<id>:<approve|reject>"
+        # The telegram notifier splits on first ":" so action="memory_update", signal_id="<id>:<action>"
+        if action == "memory_update":
+            try:
+                pending_id_str, sub_action = signal_id.split(":", 1)
+                pending_id = int(pending_id_str)
+            except (ValueError, AttributeError):
+                logger.warning("memory_callback_malformed", signal_id=signal_id)
+                return
+            self._postmortem_pipeline.handle_memory_callback(pending_id, sub_action)
+            return
+
         result = self.handle_signal_action(signal_id, action)
         logger.info("telegram_action_result", signal_id=signal_id, result=result)
 
@@ -856,6 +880,9 @@ class TradingEngine:
                 pnl=round(pnl, 2),
                 reason=exit_signal.reason.value,
             )
+
+            # Trigger self-improvement postmortem (Telegram-gated memory write).
+            self._safe_enqueue_postmortem(result.order_id or position.order_id)
         else:
             msg = result.message if result else "Exit order failed"
             logger.error("auto_sell_failed", symbol=symbol, error=msg)
@@ -949,6 +976,9 @@ class TradingEngine:
             ),
             "level": "success" if pnl >= 0 else "warning",
         })
+
+        # Trigger self-improvement postmortem (Telegram-gated memory write).
+        self._safe_enqueue_postmortem(position.order_id)
 
         logger.info(
             "gtt_exit_completed",
@@ -1074,6 +1104,37 @@ class TradingEngine:
                 self._current_regime = self._regime_detector.predict(nifty_daily)
         except Exception as e:
             logger.warning("regime_update_error", error=str(e))
+
+    def _safe_enqueue_postmortem(self, order_id: Optional[str]) -> None:
+        """Enqueue a postmortem for a just-closed trade. Never raises."""
+        if not order_id:
+            return
+        try:
+            self._postmortem_pipeline.enqueue_postmortem_for_closed_trade(order_id)
+        except Exception as e:
+            logger.error("postmortem_enqueue_error", order_id=order_id, error=str(e))
+
+    def sweep_pending_memory_updates(self) -> None:
+        """Scheduled job: expire stale pending memory updates."""
+        try:
+            self._postmortem_pipeline.sweep_expired()
+        except Exception as e:
+            logger.error("memory_sweep_error", error=str(e))
+
+    def run_weekly_review(self) -> Optional[int]:
+        """Scheduled job (Friday post-close): draft a weekly review for user approval."""
+        try:
+            from src.feedback.weekly_review_agent import WeeklyReviewAgent
+
+            agent = WeeklyReviewAgent(self._config.agents)
+            return agent.run(
+                db=self._db,
+                telegram=self._telegram,
+                writer_pipeline=self._postmortem_pipeline,
+            )
+        except Exception as e:
+            logger.error("weekly_review_error", error=str(e))
+            return None
 
     def send_daily_summary(self) -> None:
         """Send end-of-day performance summary."""
@@ -1317,6 +1378,28 @@ def main() -> None:
         trigger=CronTrigger(hour=close_h, minute=close_m + 5, timezone=config.market.timezone),
         id="daily_summary",
         name="Daily Summary",
+    )
+
+    # Weekly review — Friday, 10 min after close
+    scheduler.add_job(
+        engine.run_weekly_review,
+        trigger=CronTrigger(
+            day_of_week="fri",
+            hour=close_h,
+            minute=(close_m + 10) % 60,
+            timezone=config.market.timezone,
+        ),
+        id="weekly_review",
+        name="Weekly Review",
+    )
+
+    # Sweep expired pending memory updates every 15 minutes (24/7 — not market-hours dependent)
+    scheduler.add_job(
+        engine.sweep_pending_memory_updates,
+        trigger=IntervalTrigger(minutes=15),
+        id="memory_update_sweeper",
+        name="Memory Update Expiry Sweeper",
+        max_instances=1,
     )
 
     # Graceful shutdown
