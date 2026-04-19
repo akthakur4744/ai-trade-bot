@@ -91,6 +91,24 @@ def _get_request_token_via_browser(login_url: str, headless: bool) -> str:
 
         context.route("**/*", _capture_route)
 
+        # Fallback capture: some redirects go through the browser's native
+        # navigation path and may not surface as routable requests. Watch all
+        # requests and responses on the context for a URL containing the token.
+        def _on_request(request):  # type: ignore[no-untyped-def]
+            if "request_token=" in request.url and "kite.zerodha.com" not in request.url:
+                captured.setdefault("url", request.url)
+
+        def _on_response(response):  # type: ignore[no-untyped-def]
+            url = response.url
+            loc = response.headers.get("location", "")
+            if "request_token=" in url and "kite.zerodha.com" not in url:
+                captured.setdefault("url", url)
+            if "request_token=" in loc:
+                captured.setdefault("url", loc)
+
+        context.on("request", _on_request)
+        context.on("response", _on_response)
+
         try:
             page.goto(login_url)
 
