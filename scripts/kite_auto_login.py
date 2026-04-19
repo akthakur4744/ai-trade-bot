@@ -71,6 +71,26 @@ def _get_request_token_via_browser(login_url: str, headless: bool) -> str:
         page = context.new_page()
         page.set_default_timeout(NAV_TIMEOUT_MS)
 
+        # Capture the redirect URL containing request_token via a route handler.
+        # Kite redirects to the app's configured callback URL (often localhost)
+        # which may not be reachable; intercept the request and fulfill it with
+        # a blank 200 so the URL sticks in the page and no error page appears.
+        captured: dict[str, str] = {}
+
+        def _capture_route(route):  # type: ignore[no-untyped-def]
+            url = route.request.url
+            if "request_token=" in url and "kite.zerodha.com" not in url:
+                captured["url"] = url
+                route.fulfill(
+                    status=200,
+                    content_type="text/html",
+                    body="<html><body>captured</body></html>",
+                )
+            else:
+                route.continue_()
+
+        context.route("**/*", _capture_route)
+
         try:
             page.goto(login_url)
 
@@ -87,16 +107,33 @@ def _get_request_token_via_browser(login_url: str, headless: bool) -> str:
             ).first
             totp_input.fill(code)
 
-            # TOTP page usually auto-submits on 6 digits; if not, click submit.
-            try:
-                page.wait_for_url("**request_token=**", timeout=10_000)
-            except Exception:
+            # Kite's TOTP page auto-submits once 6 digits are entered. Wait up
+            # to 10s for the redirect; if nothing, click submit as a fallback
+            # and wait another 20s.
+            def _wait_captured(seconds: float) -> bool:
+                import time
+
+                deadline = time.time() + seconds
+                while time.time() < deadline:
+                    if "url" in captured:
+                        return True
+                    page.wait_for_timeout(200)
+                return "url" in captured
+
+            if not _wait_captured(10):
                 submit = page.locator("button[type='submit']").first
                 if submit.count():
-                    submit.click()
-                page.wait_for_url("**request_token=**", timeout=NAV_TIMEOUT_MS)
+                    try:
+                        submit.click()
+                    except Exception:
+                        pass
+                _wait_captured(20)
 
-            final_url = page.url
+            if "url" not in captured:
+                raise RuntimeError(
+                    "TOTP submitted but no redirect with request_token was captured"
+                )
+            final_url = captured["url"]
         except Exception:
             # Debug aid: when running --headed, keep the browser on screen briefly
             # so you can see what state it reached (error message, wrong page, etc).
