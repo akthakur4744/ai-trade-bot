@@ -40,8 +40,14 @@ DEBUG_FAILURE_PAUSE_S = 30  # keep browser open on failure when --headed
 
 
 def _normalize_totp_secret(raw: str) -> str:
-    """Strip whitespace/dashes and uppercase so base32 decode doesn't fail."""
-    return "".join(raw.split()).replace("-", "").upper()
+    """Strip whitespace/dashes, uppercase, and pad to multiple of 8.
+
+    Base32 decoding (pyotp) requires the input length to be a multiple of 8;
+    some TOTP providers display secrets without the trailing `=` padding.
+    """
+    cleaned = "".join(raw.split()).replace("-", "").upper().rstrip("=")
+    pad = (-len(cleaned)) % 8
+    return cleaned + ("=" * pad)
 
 
 def _get_request_token_via_browser(login_url: str, headless: bool) -> str:
