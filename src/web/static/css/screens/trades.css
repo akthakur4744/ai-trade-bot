@@ -1,0 +1,28 @@
+/* Trade History — screen-specific styles */
+
+.trades-summary {
+    display: flex;
+    gap: var(--space-6);
+    padding: var(--space-3) 0;
+    border-top: 1px solid var(--border-subtle);
+    margin-top: var(--space-3);
+}
+
+.trades-summary .summary-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.trades-summary .summary-label {
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.trades-summary .summary-value {
+    font-family: var(--font-mono);
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+}

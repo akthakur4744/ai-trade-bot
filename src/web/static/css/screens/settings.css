@@ -1,0 +1,74 @@
+/* System Settings — screen-specific styles */
+
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: var(--space-5);
+}
+
+.settings-section {
+    padding: var(--space-5);
+}
+
+.settings-section .card-title {
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.weight-slider {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.weight-slider .slider-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: var(--text-sm);
+}
+
+.weight-slider .slider-header .name { color: var(--text-primary); }
+.weight-slider .slider-header .value {
+    font-family: var(--font-mono);
+    color: var(--accent-blue);
+    font-weight: var(--weight-medium);
+}
+
+.strategy-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+}
+
+.strategy-checkbox {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.strategy-checkbox:hover {
+    background: var(--surface-3);
+}
+
+.strategy-checkbox input[type="checkbox"] {
+    accent-color: var(--accent-blue);
+    width: 16px;
+    height: 16px;
+}
+
+.save-bar {
+    position: sticky;
+    bottom: 0;
+    background: var(--surface-2);
+    border-top: 1px solid var(--border-default);
+    padding: var(--space-3) var(--space-5);
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-3);
+    margin: var(--space-5) calc(-1 * var(--space-5)) calc(-1 * var(--space-5));
+    border-radius: 0 0 var(--radius) var(--radius);
+}

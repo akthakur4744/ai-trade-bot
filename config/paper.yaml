@@ -1,0 +1,12 @@
+# Paper trading overrides
+execution:
+  mode: "paper"
+  paper:
+    slippage_bps: 5
+    fill_delay_ms: 100
+
+database:
+  url: "sqlite:///insight_alpha_paper.db"
+
+logging:
+  level: "DEBUG"

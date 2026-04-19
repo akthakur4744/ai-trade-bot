@@ -1,0 +1,20 @@
+# Live trading overrides — stricter limits
+execution:
+  mode: "live"
+  live:
+    order_type: "MARKET"
+    exchange: "NSE"
+    product: "MIS"
+
+# Tighter risk limits for live
+risk:
+  max_capital_per_trade: 5000
+  max_daily_loss: 500
+  max_open_positions: 2
+  max_capital_deployed: 15000
+
+database:
+  url: "sqlite:///insight_alpha_live.db"
+
+logging:
+  level: "INFO"

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Insight-Alpha | Trading Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <h1 class="logo">Insight-Alpha</h1>
+            <span class="badge badge-mode" id="mode-badge">PAPER</span>
+        </div>
+        <div class="header-right">
+            <span class="header-stat" id="pending-count-badge" style="display:none">
+                <span class="pulse-dot"></span> <span id="pending-count-text">0</span> Pending
+            </span>
+            <span class="header-stat" id="auto-sell-badge" style="display:none">
+                <span class="auto-sell-dot"></span> <span id="auto-sell-count-text">0</span> Auto-Sell
+            </span>
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-text">Disconnected</span>
+            <span class="clock" id="clock"></span>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container">
+        <!-- Auth + Engine Controls -->
+        <section class="card controls-card">
+            <div class="controls">
+                {% if not state.is_authenticated %}
+                <a href="/auth/login" class="btn btn-primary btn-lg">
+                    <span class="btn-icon">&#x1F511;</span> Login with Zerodha
+                </a>
+                <p class="hint">One-click login — redirects to Zerodha, auto-captures token</p>
+                {% else %}
+                <div class="control-group">
+                    <span class="auth-status">&#x2705; Kite Authenticated</span>
+                    <button class="btn btn-success" id="btn-start" onclick="startEngine()">
+                        &#x25B6; Start Engine
+                    </button>
+                    <button class="btn btn-danger" id="btn-stop" onclick="stopEngine()" style="display:none">
+                        &#x23F9; Stop Engine
+                    </button>
+                    <button class="btn btn-secondary" onclick="runCycle()">
+                        &#x1F504; Run Single Cycle
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+        </section>
+
+        <!-- Stats Cards -->
+        <section class="stats-grid">
+            <div class="card stat-card">
+                <div class="stat-label">Scan Cycles</div>
+                <div class="stat-value" id="stat-cycles">0</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-label">Open Positions</div>
+                <div class="stat-value" id="stat-positions">0</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-label">Today's PnL</div>
+                <div class="stat-value" id="stat-pnl">&#x20B9;0.00</div>
+            </div>
+            <div class="card stat-card">
+                <div class="stat-label">Capital Deployed</div>
+                <div class="stat-value" id="stat-deployed">&#x20B9;0.00</div>
+            </div>
+        </section>
+
+        <!-- Pending Signals (Approval Queue) -->
+        <section class="card pending-card" id="pending-panel" style="display:none">
+            <h2 class="card-title">&#x23F3; Signals Awaiting Approval <span class="pending-badge" id="pending-badge">0</span></h2>
+            <div id="pending-list" class="pending-list"></div>
+        </section>
+
+        <!-- Auto-Sell Monitor -->
+        <section class="card auto-sell-card" id="auto-sell-panel" style="display:none">
+            <h2 class="card-title">&#x1F916; Auto-Sell Monitor</h2>
+            <div id="auto-sell-list" class="auto-sell-list"></div>
+        </section>
+
+        <!-- Insights Panel -->
+        <section class="card insights-card" id="insights-panel" style="display:none">
+            <h2 class="card-title">&#x1F9E0; Market Insights <span class="insight-time" id="insight-time"></span></h2>
+
+            <!-- Macro + Regime -->
+            <div class="insight-grid">
+                <div class="insight-box" id="insight-macro">
+                    <div class="insight-label">&#x1F3DB; Market Context</div>
+                    <div class="insight-content" id="macro-content">&mdash;</div>
+                </div>
+                <div class="insight-box" id="insight-sentiment">
+                    <div class="insight-label">&#x1F4F0; News Sentiment</div>
+                    <div class="insight-content" id="sentiment-content">&mdash;</div>
+                </div>
+                <div class="insight-box" id="insight-risk">
+                    <div class="insight-label">&#x1F6E1; Risk Assessment</div>
+                    <div class="insight-content" id="risk-content">&mdash;</div>
+                </div>
+            </div>
+
+            <!-- Research Summary -->
+            <div class="insight-section" id="research-section" style="display:none">
+                <div class="insight-label">&#x1F4A1; AI Research Summary</div>
+                <div class="research-summary" id="research-summary"></div>
+                <div class="research-drivers" id="research-drivers"></div>
+                <div class="research-entities" id="research-entities"></div>
+            </div>
+
+            <!-- News Headlines -->
+            <div class="insight-section" id="news-section" style="display:none">
+                <div class="insight-label">&#x1F4F0; Latest Headlines</div>
+                <div class="news-list" id="news-list"></div>
+            </div>
+
+            <!-- Scored Signals -->
+            <div class="insight-section" id="scoring-section" style="display:none">
+                <div class="insight-label">&#x1F3AF; Signal Scoring</div>
+                <div class="scoring-list" id="scoring-list"></div>
+            </div>
+        </section>
+
+        <!-- Two Column Layout -->
+        <div class="grid-2col">
+            <!-- Portfolio -->
+            <section class="card">
+                <h2 class="card-title">&#x1F4CA; Open Positions</h2>
+                <div class="table-wrap">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Dir</th>
+                                <th>Qty</th>
+                                <th>Entry</th>
+                                <th>Current</th>
+                                <th>PnL</th>
+                                <th>Strategy</th>
+                                <th>Exit</th>
+                            </tr>
+                        </thead>
+                        <tbody id="positions-body">
+                            <tr><td colspan="8" class="empty">No open positions</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Activity Log -->
+            <section class="card">
+                <h2 class="card-title">&#x1F4CB; Activity Log</h2>
+                <div class="log-container" id="activity-log">
+                    {% for alert in state.alerts %}
+                    <div class="log-entry log-{{ alert.level }}">
+                        <span class="log-time">{{ alert.time }}</span>
+                        <span class="log-msg">{{ alert.message }}</span>
+                    </div>
+                    {% endfor %}
+                    {% if not state.alerts %}
+                    <div class="log-entry log-info">
+                        <span class="log-msg">Waiting for activity...</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </section>
+        </div>
+
+        <!-- Recent Signals -->
+        <section class="card">
+            <h2 class="card-title">&#x1F4E1; Recent Signals</h2>
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Symbol</th>
+                            <th>Direction</th>
+                            <th>Strategy</th>
+                            <th>Confidence</th>
+                            <th>Score</th>
+                            <th>Entry</th>
+                            <th>Stop</th>
+                            <th>Target</th>
+                        </tr>
+                    </thead>
+                    <tbody id="signals-body">
+                        <tr><td colspan="9" class="empty">No signals yet</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

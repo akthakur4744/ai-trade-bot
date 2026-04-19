@@ -1,0 +1,19 @@
+/* Dashboard Overview — screen-specific styles */
+
+.dashboard-activity {
+    max-height: 360px;
+    overflow-y: auto;
+}
+
+.quick-stat-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-2) 0;
+    font-size: var(--text-sm);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.quick-stat-row:last-child { border-bottom: none; }
+.quick-stat-row .label { color: var(--text-secondary); }
+.quick-stat-row .value { font-family: var(--font-mono); font-weight: var(--weight-medium); }

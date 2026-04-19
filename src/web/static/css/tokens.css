@@ -1,0 +1,122 @@
+/* ============================================
+   Insight-Alpha Design System — Tokens
+   ============================================ */
+
+:root {
+    /* --- Surface Colors (layered depth) --- */
+    --surface-0: #0b0d13;
+    --surface-1: #0f1117;
+    --surface-2: #1a1d28;
+    --surface-3: #1f2333;
+    --surface-4: #252a3a;
+
+    /* --- Border --- */
+    --border-default: #2a2e3d;
+    --border-subtle: #1f2333;
+    --border-strong: #3a3f52;
+
+    /* --- Text --- */
+    --text-primary: #e4e6eb;
+    --text-secondary: #8b8fa3;
+    --text-muted: #5a5e70;
+    --text-inverse: #0f1117;
+
+    /* --- Accent Colors --- */
+    --accent-blue: #4a9eff;
+    --accent-blue-dim: rgba(74, 158, 255, 0.15);
+    --accent-blue-hover: #3a8bef;
+
+    --accent-green: #00c853;
+    --accent-green-dim: rgba(0, 200, 83, 0.15);
+    --accent-green-hover: #00b548;
+
+    --accent-red: #ff4757;
+    --accent-red-dim: rgba(255, 71, 87, 0.15);
+    --accent-red-hover: #e63e4d;
+
+    --accent-yellow: #ffa726;
+    --accent-yellow-dim: rgba(255, 167, 38, 0.15);
+    --accent-yellow-hover: #f59a1e;
+
+    --accent-purple: #b388ff;
+    --accent-purple-dim: rgba(179, 136, 255, 0.15);
+    --accent-purple-hover: #a370ff;
+
+    --accent-cyan: #26c6da;
+    --accent-cyan-dim: rgba(38, 198, 218, 0.15);
+
+    /* --- Semantic Colors --- */
+    --color-profit: var(--accent-green);
+    --color-profit-dim: var(--accent-green-dim);
+    --color-loss: var(--accent-red);
+    --color-loss-dim: var(--accent-red-dim);
+    --color-warning: var(--accent-yellow);
+    --color-warning-dim: var(--accent-yellow-dim);
+    --color-info: var(--accent-blue);
+    --color-info-dim: var(--accent-blue-dim);
+
+    /* --- Typography --- */
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-mono: 'SF Mono', 'Menlo', 'Cascadia Code', 'Consolas', monospace;
+
+    --text-xs: 11px;
+    --text-sm: 12px;
+    --text-base: 13px;
+    --text-md: 14px;
+    --text-lg: 16px;
+    --text-xl: 20px;
+    --text-2xl: 26px;
+    --text-3xl: 32px;
+
+    --weight-normal: 400;
+    --weight-medium: 500;
+    --weight-semibold: 600;
+    --weight-bold: 700;
+
+    --leading-tight: 1.25;
+    --leading-normal: 1.5;
+
+    /* --- Spacing --- */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-7: 28px;
+    --space-8: 32px;
+    --space-10: 40px;
+    --space-12: 48px;
+
+    /* --- Border Radius --- */
+    --radius-sm: 6px;
+    --radius: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 20px;
+    --radius-full: 9999px;
+
+    /* --- Shadows --- */
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25);
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.4);
+    --shadow-glow-blue: 0 0 20px rgba(74, 158, 255, 0.15);
+    --shadow-glow-green: 0 0 20px rgba(0, 200, 83, 0.15);
+
+    /* --- Transitions --- */
+    --transition-fast: 100ms ease;
+    --transition-base: 200ms ease;
+    --transition-slow: 300ms ease;
+
+    /* --- Z-Index --- */
+    --z-sidebar: 50;
+    --z-header: 100;
+    --z-dropdown: 150;
+    --z-modal: 200;
+    --z-toast: 300;
+
+    /* --- Layout --- */
+    --sidebar-width: 240px;
+    --sidebar-collapsed: 64px;
+    --header-height: 56px;
+    --content-max-width: 1400px;
+}
