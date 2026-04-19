@@ -125,6 +125,13 @@ python scripts/backtest_cli.py --strategy mean_reversion --period 2y
 
 # Kite auth (manual — use dashboard instead)
 python scripts/kite_auth.py
+
+# Kite auto-login (fully automated daily login via External TOTP + headless browser)
+# Requires: External 2FA TOTP enabled in Kite profile, secrets in .env.
+# ToS caveat: automated Kite login violates Zerodha ToS — use at your own risk.
+python scripts/kite_auto_login.py              # headless
+python scripts/kite_auto_login.py --headed     # debug (visible browser)
+./scripts/install_cron.sh                      # schedule daily at 08:55 local time
 ```
 
 ## Available Skills (in .claude/skills/)
@@ -141,7 +148,7 @@ Claude Code skills, loaded on-demand for trading analysis:
 ## Important Notes
 
 - Market hours: 09:15 - 15:30 IST
-- Kite tokens expire daily — dashboard handles OAuth automatically
+- Kite tokens expire daily — dashboard handles OAuth manually; `scripts/kite_auto_login.py` + External TOTP automates it fully (launchd at 08:55 local)
 - Kite rate limits: 3 req/s (historical), 10 req/s (other)
 - Paper broker never calls Kite order APIs — LTP only for simulated fills
 - Sentiment decay: 15% reduction to news_strength every 30min

@@ -33,6 +33,10 @@ python start.py
 python scripts/kite_auth.py
 python -m src.main
 
+# Fully-automated daily Kite login (External TOTP required — see below)
+python scripts/kite_auto_login.py
+./scripts/install_cron.sh   # schedule it daily at 08:55 local time
+
 # Run tests
 pytest tests/
 ```
@@ -142,6 +146,29 @@ Database: SQLite (paper mode) / PostgreSQL (live mode). WAL mode enabled for con
 - `docs/ai_market_intelligence_agent_prd.md` — Original product requirements document
 - `plan.md` — Implementation roadmap with phases and timelines
 - `CLAUDE.md` — Development conventions and project context
+
+## Automated Daily Kite Login (optional)
+
+Zerodha requires interactive 2FA every 24 hours (SEBI mandate — cannot be removed). With **External TOTP** enabled in your Kite profile, the full login can be scripted so the agent runs hands-off.
+
+**One-time setup:**
+1. Kite web → Profile → Settings → Account → enable **External 2FA TOTP**. Scan the QR in Google Authenticator / Authy **and copy the 32-char secret**.
+2. Add to `.env` (keep `chmod 600`):
+   ```
+   KITE_USER_ID=your_client_id
+   KITE_PASSWORD=your_password
+   KITE_TOTP_SECRET=the_32_char_secret
+   ```
+3. Install Playwright browser once: `playwright install chromium`.
+
+**Daily automation:**
+```bash
+python scripts/kite_auto_login.py              # headless run; idempotent
+./scripts/install_cron.sh                       # schedule Mon–Fri 08:55 local
+```
+Logs: `~/.insight_alpha/auto_login.log`.
+
+**Caveat:** Zerodha's developer terms disallow automated login. Enforcement is rare but the risk (account freeze) is yours. Omit this section to keep using manual dashboard OAuth.
 
 ## License
 
