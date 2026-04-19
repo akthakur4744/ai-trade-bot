@@ -149,6 +149,48 @@ Claude Code skills, loaded on-demand for trading analysis:
 - **signal-postmortem** — Post-trade analysis: signals vs outcomes
 - **technical-analyst** — Chart-based analysis, trend/support/resistance
 
+## Memory System & Self-Improvement Loop
+
+Curated markdown memory at `memory/` sits on top of the SQL layer and drives continuous learning. Every write is **Telegram-gated** — no file here is ever edited without explicit user approval.
+
+**Files** (cadence / reader):
+- `memory/PROJECT-CONTEXT.md` — static mission, read on every agent startup (rarely updated)
+- `memory/TRADING-STRATEGY.md` — binding rulebook; rules graduate here from LEARNINGS.md (weekly, on approval)
+- `memory/LEARNINGS.md` — distilled patterns, ≥2-occurrence promotion (weekly, on approval)
+- `memory/MISTAKES.md` — append-only raw postmortems (per-trade, on approval)
+- `memory/WEEKLY-REVIEW.md` — Friday retrospectives with letter grade (weekly, on approval)
+
+**Flow:**
+```
+Trade closes → PostmortemAgent drafts MISTAKES/LEARNINGS/STRATEGY diffs via Claude
+            → row inserted in `pending_memory_updates` table
+            → Telegram message with [Approve & Commit] [Reject] buttons (60-min expiry)
+            → Approve: MemoryWriter applies diffs + git commit + push, message edited to "Committed <sha>"
+            → Reject: no file changes, message edited to "Rejected"
+            → No action in 60 min: sweeper marks `expired`, message edited accordingly
+Friday 15:40 IST → WeeklyReviewAgent drafts WEEKLY-REVIEW / LEARNINGS / STRATEGY diffs → same Telegram gate
+```
+
+**Rules (never bypass):**
+- **No Claude agent may edit `memory/*.md` directly.** All writes go through `src/feedback/memory_writer.py::MemoryWriter`, which is only invoked by `src/feedback/postmortem_pipeline.py::PostmortemPipeline.handle_memory_callback()` after a Telegram approve.
+- Orchestrator + Researcher read `TRADING-STRATEGY.md` and `LEARNINGS.md` into their system prompts at init time (`src/feedback/memory_context.py::build_memory_context()`). Any active rule or pattern must drop confidence by 0.1 and be cited in `key_drivers`/`risks` when a signal contradicts it.
+- Config-value changes suggested by the weekly review open a PR — they are **not** auto-merged into `config/*.yaml`.
+- `MISTAKES.md` + `LEARNINGS.md` are append-only with dedup on the first line of each section. `TRADING-STRATEGY.md` inserts under `## Active Rules`.
+
+**Slash commands** (`.claude/commands/`):
+- `/postmortem <order_id>` — manual postmortem (routes through approval flow)
+- `/weekly-review` — run the Friday review on demand
+- `/promote-learning "<pattern>"` — manual pattern promotion
+
+**Key modules:**
+- `src/feedback/postmortem_agent.py` — Claude-backed draft
+- `src/feedback/postmortem_pipeline.py` — pipeline glue + callback handler
+- `src/feedback/memory_writer.py` — the **only** writer to `memory/*.md`
+- `src/feedback/memory_context.py` — injects memory into agent prompts
+- `src/feedback/weekly_review_agent.py` — Friday review draft
+- `src/storage/models.py::PendingMemoryUpdate` — approval-queue table
+- `src/notifications/telegram.py::send_memory_update_for_approval` — approval UI
+
 ## Important Notes
 
 - Market hours: 09:15 - 15:30 IST

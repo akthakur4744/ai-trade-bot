@@ -53,7 +53,12 @@ class ResearcherAgent(BaseAgent):
     """Analyzes news and market data to extract structured sentiment signals."""
 
     def __init__(self, config: AgentConfig) -> None:
-        super().__init__(config, system_prompt=RESEARCHER_SYSTEM_PROMPT)
+        from src.feedback.memory_context import build_memory_context
+
+        super().__init__(
+            config,
+            system_prompt=RESEARCHER_SYSTEM_PROMPT + build_memory_context(),
+        )
 
     def analyze_news(
         self,

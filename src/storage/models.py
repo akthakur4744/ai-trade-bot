@@ -199,6 +199,28 @@ class PendingSignalState(Base):
     action = Column(String(20))
 
 
+class PendingMemoryUpdate(Base):
+    """A drafted memory-file update awaiting user approval via Telegram.
+
+    A single row bundles candidate diffs for any/all of MISTAKES.md / LEARNINGS.md /
+    TRADING-STRATEGY.md / WEEKLY-REVIEW.md. User approves or rejects the whole bundle.
+    """
+
+    __tablename__ = "pending_memory_updates"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source = Column(String(20), nullable=False)  # "postmortem" | "weekly_review" | "manual"
+    trade_id = Column(Integer, nullable=True)  # FK-ish to trades.id; null for weekly
+    title = Column(String(200), nullable=False)
+    draft_json = Column(Text, nullable=False)  # {"mistakes": "...", "learnings": "...", "strategy_patch": "..."}
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    telegram_message_id = Column(Integer)
+    status = Column(String(20), default="pending")  # pending, approved, rejected, expired, failed
+    applied_at = Column(DateTime, nullable=True)
+    commit_sha = Column(String(40), nullable=True)
+
+
 class AppState(Base):
     """Generic key-value store for app-level state (kill switch, portfolio counters)."""
 
