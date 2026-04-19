@@ -14,6 +14,7 @@ AI-powered equity trading agent for Indian markets using Zerodha Kite Connect.
 - Web dashboard for Kite OAuth login, engine control, and real-time monitoring
 - Full state persistence — positions, triggers, pending signals survive restarts
 - Supports paper trading (simulated) and live trading (Zerodha)
+- Self-improving memory loop: postmortems and weekly reviews propose edits to `memory/*.md`, gated by Telegram approval and committed to git
 
 ## Quick Start
 
@@ -94,6 +95,24 @@ Dark-themed dashboard at `http://127.0.0.1:8000`:
 - Market insights (macro context, news sentiment, AI research, risk assessment)
 - Open positions with PnL and exit management type (Auto/Manual)
 - Activity log and recent signals table
+
+## Memory System & Self-Improvement Loop
+
+A curated markdown memory layer under `memory/` drives continuous learning on top of the SQL trade log. **Every write is Telegram-gated** — no file is edited without explicit user approval.
+
+| File | Purpose | Cadence |
+|------|---------|---------|
+| `memory/PROJECT-CONTEXT.md` | Static mission, capital, constraints | Rarely |
+| `memory/TRADING-STRATEGY.md` | Binding rulebook agents must follow | Weekly (on approval) |
+| `memory/LEARNINGS.md` | Distilled patterns, ≥2-occurrence promotion | Weekly (on approval) |
+| `memory/MISTAKES.md` | Append-only per-trade postmortems | Per trade close (on approval) |
+| `memory/WEEKLY-REVIEW.md` | Friday retrospective with letter grade | Weekly (on approval) |
+
+**Flow:** trade closes → `PostmortemAgent` drafts MISTAKES/LEARNINGS/STRATEGY diffs via Claude → row queued in `pending_memory_updates` → Telegram message with `[Approve & Commit] [Reject]` (60-min expiry) → on approve, `MemoryWriter` applies diffs + `git commit` + `git push`. Friday 15:40 IST runs the weekly review through the same gate.
+
+Orchestrator and Researcher read `TRADING-STRATEGY.md` + `LEARNINGS.md` into their system prompts on startup; signals contradicting an active rule drop confidence by 0.1 and must cite the rule.
+
+Slash commands: `/postmortem <order_id>`, `/weekly-review`, `/promote-learning "<pattern>"`.
 
 ## Configuration
 

@@ -16,6 +16,7 @@ import structlog
 
 from src.agents.base_agent import BaseAgent
 from src.config import AgentConfig, ScoringConfig
+from src.feedback.memory_context import build_memory_context
 from src.models import (
     ConfidenceBreakdown,
     Direction,
@@ -53,7 +54,10 @@ class OrchestratorAgent(BaseAgent):
     and uses Claude only for human-readable summaries."""
 
     def __init__(self, config: AgentConfig, scoring_config: ScoringConfig) -> None:
-        super().__init__(config, system_prompt=ORCHESTRATOR_SYSTEM_PROMPT)
+        super().__init__(
+            config,
+            system_prompt=ORCHESTRATOR_SYSTEM_PROMPT + build_memory_context(),
+        )
         self._scoring = scoring_config
 
     def score_signals(

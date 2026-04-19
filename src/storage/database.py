@@ -14,6 +14,7 @@ from src.storage.models import (
     AppState,
     AutoSellTriggerState,
     Base,
+    PendingMemoryUpdate,
     PendingSignalState,
     PositionState,
     Signal,
@@ -404,6 +405,148 @@ class Database:
             session.rollback()
         finally:
             session.close()
+
+    # ---- Pending Memory Updates ----
+
+    def save_pending_memory_update(
+        self,
+        source: str,
+        title: str,
+        draft: dict,
+        expires_at: datetime,
+        trade_id: int | None = None,
+    ) -> int:
+        """Insert a new pending memory update draft. Returns the row id."""
+        session = self._session_factory()
+        try:
+            row = PendingMemoryUpdate(
+                source=source,
+                trade_id=trade_id,
+                title=title,
+                draft_json=json.dumps(draft),
+                expires_at=expires_at,
+                status="pending",
+            )
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return int(row.id)
+        except Exception as e:
+            logger.error("save_pending_memory_update_error", error=str(e))
+            session.rollback()
+            return 0
+        finally:
+            session.close()
+
+    def set_pending_memory_message_id(self, pending_id: int, message_id: int) -> None:
+        session = self._session_factory()
+        try:
+            row = session.query(PendingMemoryUpdate).filter_by(id=pending_id).first()
+            if row:
+                row.telegram_message_id = message_id
+                session.commit()
+        except Exception as e:
+            logger.error("set_pending_memory_message_id_error", error=str(e))
+            session.rollback()
+        finally:
+            session.close()
+
+    def load_pending_memory_update(self, pending_id: int) -> dict | None:
+        session = self._session_factory()
+        try:
+            row = session.query(PendingMemoryUpdate).filter_by(id=pending_id).first()
+            if not row:
+                return None
+            return {
+                "id": row.id,
+                "source": row.source,
+                "trade_id": row.trade_id,
+                "title": row.title,
+                "draft": json.loads(row.draft_json),
+                "created_at": row.created_at,
+                "expires_at": row.expires_at,
+                "telegram_message_id": row.telegram_message_id,
+                "status": row.status,
+            }
+        except Exception as e:
+            logger.error("load_pending_memory_update_error", pending_id=pending_id, error=str(e))
+            return None
+        finally:
+            session.close()
+
+    def load_open_pending_memory_updates(self) -> list[dict]:
+        session = self._session_factory()
+        try:
+            rows = session.query(PendingMemoryUpdate).filter_by(status="pending").all()
+            return [
+                {
+                    "id": r.id,
+                    "source": r.source,
+                    "trade_id": r.trade_id,
+                    "title": r.title,
+                    "draft": json.loads(r.draft_json),
+                    "created_at": r.created_at,
+                    "expires_at": r.expires_at,
+                    "telegram_message_id": r.telegram_message_id,
+                }
+                for r in rows
+            ]
+        except Exception as e:
+            logger.error("load_open_pending_memory_updates_error", error=str(e))
+            return []
+        finally:
+            session.close()
+
+    def update_pending_memory_status(
+        self,
+        pending_id: int,
+        status: str,
+        commit_sha: str | None = None,
+    ) -> None:
+        session = self._session_factory()
+        try:
+            row = session.query(PendingMemoryUpdate).filter_by(id=pending_id).first()
+            if row:
+                row.status = status
+                if status in ("approved", "failed"):
+                    row.applied_at = datetime.utcnow()
+                if commit_sha:
+                    row.commit_sha = commit_sha
+                session.commit()
+        except Exception as e:
+            logger.error("update_pending_memory_status_error", error=str(e))
+            session.rollback()
+        finally:
+            session.close()
+
+    def expire_stale_pending_memory_updates(self) -> list[dict]:
+        """Mark pending rows past expires_at as expired. Returns the expired rows."""
+        session = self._session_factory()
+        expired: list[dict] = []
+        try:
+            now = datetime.utcnow()
+            rows = (
+                session.query(PendingMemoryUpdate)
+                .filter(
+                    PendingMemoryUpdate.status == "pending",
+                    PendingMemoryUpdate.expires_at < now,
+                )
+                .all()
+            )
+            for r in rows:
+                r.status = "expired"
+                expired.append({
+                    "id": r.id,
+                    "title": r.title,
+                    "telegram_message_id": r.telegram_message_id,
+                })
+            session.commit()
+        except Exception as e:
+            logger.error("expire_pending_memory_error", error=str(e))
+            session.rollback()
+        finally:
+            session.close()
+        return expired
 
     # ---- App State (key-value) ----
 

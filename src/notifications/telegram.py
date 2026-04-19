@@ -241,6 +241,91 @@ class TelegramNotifier:
             logger.error("telegram_update_message_error", error=str(e))
             return False
 
+    # ---- Memory Update Approval ----
+
+    def send_memory_update_for_approval(
+        self,
+        pending_id: int,
+        headline: str,
+        summary: str,
+        has_mistakes: bool,
+        has_learnings: bool,
+        has_strategy: bool,
+    ) -> Optional[int]:
+        """Send a memory-update draft with Approve & Commit / Reject buttons.
+
+        Returns the Telegram message_id for later editing.
+        """
+        if not self.is_configured:
+            logger.warning("telegram_not_configured")
+            return None
+
+        esc = self._escape_md
+        flags = []
+        if has_mistakes:
+            flags.append("MISTAKES\\.md")
+        if has_learnings:
+            flags.append("LEARNINGS\\.md")
+        if has_strategy:
+            flags.append("TRADING\\-STRATEGY\\.md")
+        flag_line = " \\+ ".join(flags) if flags else "no files"
+
+        # Telegram message limit: 4096 chars. Truncate summary aggressively.
+        summary_excerpt = summary[:1500] + ("..." if len(summary) > 1500 else "")
+
+        lines = [
+            "\U0001f9e0 *Memory Update Proposed*",
+            "",
+            f"*{esc(headline)}*",
+            "",
+            f"*Would update:* {flag_line}",
+            "",
+            "*Preview:*",
+            f"```\n{summary_excerpt}\n```",
+            "",
+            "\u2b07\ufe0f *Approve to commit these diffs to memory/\\*\\.md*",
+        ]
+
+        keyboard = {
+            "inline_keyboard": [
+                [
+                    {
+                        "text": "\u2705 Approve & Commit",
+                        "callback_data": f"memory_update:{pending_id}:approve",
+                    },
+                    {
+                        "text": "\u274c Reject",
+                        "callback_data": f"memory_update:{pending_id}:reject",
+                    },
+                ]
+            ]
+        }
+        # Use plain Markdown (not V2) for code fence rendering with minimal escapes.
+        text = "\n".join(lines)
+        return self._send_with_keyboard(text, keyboard)
+
+    def update_memory_message(self, message_id: int, new_status: str) -> bool:
+        """Edit a memory-update message to reflect approved / rejected / expired status."""
+        if not self.is_configured or not message_id:
+            return False
+
+        try:
+            url = f"{TELEGRAM_API_BASE.format(token=self._token)}/editMessageReplyMarkup"
+            httpx.post(
+                url,
+                json={
+                    "chat_id": self._chat_id,
+                    "message_id": message_id,
+                    "reply_markup": {"inline_keyboard": []},
+                },
+                timeout=self._timeout,
+            )
+            self._send(f"\U0001f9e0 *Memory update:* {self._escape_md(new_status)}")
+            return True
+        except Exception as e:
+            logger.error("telegram_update_memory_error", error=str(e))
+            return False
+
     # ---- Callback Polling ----
 
     def start_callback_polling(self, handler: Callable[[str, str], None]) -> None:
