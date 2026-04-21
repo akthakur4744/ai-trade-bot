@@ -9,14 +9,15 @@ Emits a single consolidated Telegram alert if any of these are stale:
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import structlog
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
 
 from src.config import load_config
 from src.data.kite_session import get_active_session
 from src.notifications.telegram import TelegramNotifier
-from src.storage.database import Database
 from src.storage.models import AppState
 from src.utils.market_calendar import is_market_open
 
@@ -28,43 +29,72 @@ THRESHOLDS_MIN = {
     "last_autosell_tick_ts": 2,
 }
 
+_CONNECT_TIMEOUT_SEC = 4   # per-IP attempt; libpq tries each DNS address in turn
+_STMT_TIMEOUT_MS = 5000
 
-def _read_ts(db, key: str):
-    with db.get_session() as s:
-        row = s.query(AppState).filter_by(key=key).first()
-        if not row:
-            return None
-        try:
-            ts = datetime.fromisoformat(row.value)
-            return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
-        except ValueError:
-            return None
+
+def _make_engine(url: str):
+    """Minimal, fast-fail engine for the heartbeat watchdog."""
+    if url.startswith("sqlite"):
+        return create_engine(url, echo=False)
+    # pool_pre_ping disabled: this is a cold pool, so all checkouts create
+    # a fresh connection anyway. Keeping it enabled would fire an extra
+    # SELECT 1 with no timeout before our statement_timeout is active.
+    return create_engine(
+        url,
+        echo=False,
+        pool_size=1,
+        max_overflow=0,
+        pool_pre_ping=False,
+        connect_args={
+            "connect_timeout": _CONNECT_TIMEOUT_SEC,
+            # statement_timeout applied at connection startup — covers every
+            # query (including any implicit ones) without a separate SET call.
+            "options": f"-c statement_timeout={_STMT_TIMEOUT_MS}",
+        },
+    )
+
+
+def _read_ts(session: Session, key: str):
+    row = session.query(AppState).filter_by(key=key).first()
+    if not row:
+        return None
+    try:
+        ts = datetime.fromisoformat(row.value)
+        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
 
 
 def main() -> int:
     cfg = load_config()
-    db = Database(cfg.database.url)
+    engine = _make_engine(cfg.database.url)
+    SessionLocal = sessionmaker(bind=engine)
 
     now = datetime.now(timezone.utc)
     alerts: list[str] = []
     market_open = is_market_open()
 
-    for key, max_age_min in THRESHOLDS_MIN.items():
-        if key == "last_autosell_tick_ts" and not market_open:
-            continue
-        ts = _read_ts(db, key)
-        if ts is None:
-            if market_open:
-                alerts.append(f"{key}: never seen")
-            continue
-        age = (now - ts).total_seconds() / 60.0
-        if age > max_age_min:
-            alerts.append(f"{key}: {age:.0f} min stale (threshold {max_age_min})")
+    try:
+        with SessionLocal() as session:
+            for key, max_age_min in THRESHOLDS_MIN.items():
+                if key == "last_autosell_tick_ts" and not market_open:
+                    continue
+                ts = _read_ts(session, key)
+                if ts is None:
+                    if market_open:
+                        alerts.append(f"{key}: never seen")
+                    continue
+                age = (now - ts).total_seconds() / 60.0
+                if age > max_age_min:
+                    alerts.append(f"{key}: {age:.0f} min stale (threshold {max_age_min})")
 
-    if market_open:
-        with db.get_session() as s:
-            if not get_active_session(s):
-                alerts.append("kite_session: not active")
+            if market_open:
+                if not get_active_session(session):
+                    alerts.append("kite_session: not active")
+
+    except Exception as e:
+        alerts.append(f"db_unreachable: {e}")
 
     if not alerts:
         logger.info("heartbeat_ok")
