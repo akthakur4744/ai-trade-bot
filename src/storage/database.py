@@ -33,6 +33,8 @@ class Database:
             self.engine = create_engine(url, echo=False)
         else:
             # Postgres (Neon) — pool with pre-ping so idle connections recycle.
+            # connect_timeout=10 ensures TCP failures surface quickly rather than
+            # hanging for OS-level timeout (~2 min) in cloud routines.
             self.engine = create_engine(
                 url,
                 echo=False,
@@ -40,6 +42,7 @@ class Database:
                 pool_size=5,
                 max_overflow=10,
                 pool_recycle=1800,
+                connect_args={"connect_timeout": 10},
             )
         self._session_factory = sessionmaker(bind=self.engine)
 

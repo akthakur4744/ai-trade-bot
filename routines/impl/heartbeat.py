@@ -11,6 +11,7 @@ from __future__ import annotations
 import sys
 from datetime import datetime, timedelta, timezone
 
+import sqlalchemy.exc
 import structlog
 
 from src.config import load_config
@@ -42,29 +43,41 @@ def _read_ts(db, key: str):
 
 
 def main() -> int:
-    cfg = load_config()
-    db = Database(cfg.database.url)
+    try:
+        cfg = load_config()
+        db = Database(cfg.database.url)
 
-    now = datetime.now(timezone.utc)
-    alerts: list[str] = []
-    market_open = is_market_open()
+        now = datetime.now(timezone.utc)
+        alerts: list[str] = []
+        market_open = is_market_open()
 
-    for key, max_age_min in THRESHOLDS_MIN.items():
-        if key == "last_autosell_tick_ts" and not market_open:
-            continue
-        ts = _read_ts(db, key)
-        if ts is None:
-            if market_open:
-                alerts.append(f"{key}: never seen")
-            continue
-        age = (now - ts).total_seconds() / 60.0
-        if age > max_age_min:
-            alerts.append(f"{key}: {age:.0f} min stale (threshold {max_age_min})")
+        for key, max_age_min in THRESHOLDS_MIN.items():
+            if key == "last_autosell_tick_ts" and not market_open:
+                continue
+            try:
+                ts = _read_ts(db, key)
+            except sqlalchemy.exc.OperationalError as exc:
+                alerts.append(f"database unreachable: {exc.orig}")
+                break
+            if ts is None:
+                if market_open:
+                    alerts.append(f"{key}: never seen")
+                continue
+            age = (now - ts).total_seconds() / 60.0
+            if age > max_age_min:
+                alerts.append(f"{key}: {age:.0f} min stale (threshold {max_age_min})")
 
-    if market_open:
-        with db.get_session() as s:
-            if not get_active_session(s):
-                alerts.append("kite_session: not active")
+        if market_open and not any(a.startswith("database") for a in alerts):
+            try:
+                with db.get_session() as s:
+                    if not get_active_session(s):
+                        alerts.append("kite_session: not active")
+            except sqlalchemy.exc.OperationalError as exc:
+                alerts.append(f"database unreachable: {exc.orig}")
+
+    except Exception as exc:  # noqa: BLE001
+        logger.error("heartbeat_error", error=str(exc))
+        alerts = [f"heartbeat error: {exc}"]
 
     if not alerts:
         logger.info("heartbeat_ok")
