@@ -1,21 +1,30 @@
 # Kite Token Health
 
-Diagnose auth failures. Kite tokens expire daily (SEBI mandate).
+Diagnose Kite session failures. Kite tokens expire daily at 15:30 IST (SEBI mandate).
+Login is **manual on mobile** — no TOTP scripting. Token lives in Neon
+`app_state` (keys: `kite_access_token`, `kite_session_expires_at`).
 
 ## Steps
 
-0. **Env** — confirm `.env` has `KITE_USER_ID`, `KITE_PASSWORD`, `KITE_TOTP_SECRET`, `KITE_API_KEY`, `KITE_API_SECRET`. Do not print values. Scripts load these via their own env loader — don't re-export in the shell.
-1. **Cache inspection** — read `~/.insight_alpha/kite_token.json`. Report `generated_at`, age, `user_id`.
-2. **Live probe** — call a cheap authenticated endpoint (profile); if 403, token is dead.
-3. **Auto-login dry-run** — `launchctl start com.insightalpha.kiteauth`; tail `~/.insight_alpha/auto_login.log`.
-4. **If it fails:**
-   - TOTP secret padded to multiple of 8? (See commit `fac0b30`.)
-   - Playwright chromium installed? (`playwright install chromium`)
-   - External 2FA TOTP enabled in the Kite profile (not SMS/email)?
-   - Request-token capture: route interception + context listeners (commits `8665580`, `621a7c9`); test with `--headed`.
-5. **launchd schedule** — `launchctl list | grep insightalpha`; confirm Mon-Fri 08:55 local is active.
-6. **ToS reminder** — automated Kite login violates Zerodha ToS. Confirm user still accepts the risk before re-arming.
+0. **Env** — confirm the trigger env has `KITE_API_KEY`, `KITE_API_SECRET`,
+   `DATABASE_URL_PAPER` / `DATABASE_URL_LIVE`. Do not print values.
+1. **Session inspection** — read `app_state` rows for `kite_access_token` +
+   `kite_session_expires_at`. Report expiry age.
+2. **Live probe** — call Kite `profile` endpoint with the stored token; if
+   `TokenException`, the session is dead.
+3. **If dead:** fire the `morning-login-prompt` routine manually to re-post
+   the login link to Telegram. User taps → phone login → Cloudflare Worker
+   writes the new token. Re-probe to confirm.
+4. **Cloudflare Worker health** — `curl https://insight-alpha.<sub>.workers.dev/kite/callback`
+   should 400 (missing request_token), not 500. If 500, check Worker logs via
+   `wrangler tail`.
 
 ## Output
 
-Exact failure stage + one-line fix. Don't rewrite `scripts/kite_auto_login.py` unless a specific stage fails.
+Exact failure stage + one-line fix.
+
+## Historical note
+
+The old `scripts/kite_auto_login.py` automated login via Playwright + TOTP
+— retained only as a manual debug tool. It violates Zerodha ToS; prefer
+the mobile-login flow.

@@ -25,13 +25,17 @@ class KiteClient:
     - Exposes the authenticated KiteConnect instance
     """
 
-    def __init__(self) -> None:
+    def __init__(self, db=None) -> None:
         self.api_key = os.getenv("KITE_API_KEY", "")
         self.api_secret = os.getenv("KITE_API_SECRET", "")
         if not self.api_key:
             raise ValueError("KITE_API_KEY environment variable is required")
         self.kite = KiteConnect(api_key=self.api_key)
         self._access_token: str | None = None
+        # Optional: when provided, `authenticate()` reads the session from
+        # Neon `app_state` (populated by the Cloudflare Worker on mobile login)
+        # before falling back to the legacy file cache.
+        self._db = db
 
     @property
     def login_url(self) -> str:
@@ -48,6 +52,18 @@ class KiteClient:
             request_token: Token received from Zerodha login redirect.
                           Required on first auth of the day.
         """
+        # Prefer the Neon-backed session (written by the Cloudflare login
+        # redirect Worker). This is the production path for cloud Routines.
+        if self._db is not None:
+            from src.data.kite_session import get_active_session
+            with self._db.get_session() as s:
+                session = get_active_session(s)
+            if session:
+                self._access_token = session.access_token
+                self.kite.set_access_token(session.access_token)
+                logger.info("kite_auth_from_neon", expires_at=str(session.expires_at))
+                return
+
         # Try cached token first
         cached = self._load_cached_token()
         if cached:

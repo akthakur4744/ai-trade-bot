@@ -1,23 +1,41 @@
 # Claude Code Routines
 
-Reusable operational playbooks for the Insight-Alpha trading agent. Each `.md` is a
-self-contained prompt — run it by pasting its contents into Claude Code, or reference it
-as `@routines/<name>.md`.
+Operational playbooks for the Insight-Alpha trading agent. Each `.md` is
+runnable in two modes:
 
-Routines are grouped by cadence:
+1. **Cloud Routine** (primary) — scheduled via `/schedule` or the Claude
+   Code dashboard. Cron floor is 1 hour.
+2. **Local** — paste the contents into Claude Code interactively, or
+   reference as `@routines/<name>.md`.
 
-| Cadence     | Routine                          | Purpose                                              |
-|-------------|----------------------------------|------------------------------------------------------|
-| Daily AM    | `pre-market-check.md`            | Auth, config, regime, watchlist sanity before 09:15  |
-| Intraday    | `signal-review.md`               | Review a pending signal before approving             |
-| Intraday    | `risk-audit.md`                  | Verify guardrails + open positions mid-session       |
-| Daily PM    | `end-of-day-report.md`           | Positions, PnL, triggers, unresolved signals         |
-| Per-trade   | `postmortem-trade.md`            | Record outcome, feed signal-postmortem skill         |
-| Weekly      | `weekly-performance-review.md`   | Aggregate stats, strategy attribution                |
-| Weekly      | `regime-check.md`                | Re-evaluate macro regime, adjust caps                |
-| Ad-hoc      | `strategy-backtest.md`           | Full backtest workflow with robustness tests         |
-| Ad-hoc      | `new-strategy-checklist.md`      | Scaffold + validate a new `Strategy` subclass        |
-| Ad-hoc      | `kite-token-health.md`           | Diagnose auth / token / auto-login issues            |
-| Ad-hoc      | `gtt-reconcile.md`               | Verify exchange GTTs match local state               |
+Every cloud-scheduled routine fail-fasts on `is_market_open(now) == False`
+(see `src/utils/market_calendar.py`) and on a stale Kite session.
 
-Edit freely — these are playbooks, not contracts.
+## Schedules
+
+| Routine                         | Cron (UTC)             | IST window         | Notes                              |
+|---------------------------------|------------------------|--------------------|------------------------------------|
+| `morning-login-prompt.md`       | `25 3 * * 1-5`         | 08:55 daily        | Gated — idempotent                 |
+| `pre-market-check.md`           | `30 3 * * 1-5`         | 09:00 daily        |                                    |
+| `signal-scan.md`                | `0 4-10 * * 1-5`       | 09:30–15:30 hourly | Scan half of the engine            |
+| `telegram-poll.md`              | `0 3-10 * * 1-5`       | 08:30–15:30 hourly | Processes approval callbacks       |
+| `heartbeat.md`                  | `30 3-10 * * 1-5`      | 09:00–16:00 hourly | Watchdog for silent triggers       |
+| `memory-approval-sweeper.md`    | `15 * * * *`           | every hour         | Expires stale memory PRs           |
+| `signal-review.md`              | `0 5 * * 1-5`          | 10:30              | Checkpoint                         |
+| `risk-audit.md`                 | `0 9 * * 1-5`          | 14:30              | Checkpoint                         |
+| `end-of-day-report.md`          | `5 10 * * 1-5`         | 15:35              | Commit to `docs/reports/`          |
+| `gtt-reconcile.md`              | `30 3 * * 1-5`         | 09:00              | Ensure every position has GTT OCO  |
+| `weekly-performance-review.md`  | `10 10 * * 5`          | Fri 15:40          | Memory PR gated by Telegram        |
+| `regime-check.md`               | `30 12 * * 0`          | Sun 18:00          |                                    |
+| `strategy-backtest.md`          | weekend only           | —                  | Rate-limit budget                  |
+| `postmortem-trade.md`           | on-demand / per trade  | —                  | Memory PR gated by Telegram        |
+| `new-strategy-checklist.md`     | on-demand              | —                  | Stateless                          |
+| `kite-token-health.md`          | on-demand              | —                  | Debug only                         |
+
+`auto-sell-tick.md` does **not** run as a cloud Routine — the 1-hour floor
+is too coarse. It runs as a 1-minute loop on the always-on Fly.io worker.
+
+## Running locally
+
+Cloud Routine cadence is the source of truth. For interactive development,
+paste a routine into Claude Code or use `@routines/<name>.md`.

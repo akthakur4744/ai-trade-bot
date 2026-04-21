@@ -1,0 +1,16 @@
+Alembic migrations for insight-alpha.
+
+Usage:
+  # Paper DB
+  export DATABASE_URL_PAPER="postgresql://..."
+  EXECUTION_MODE=paper alembic upgrade head
+
+  # Live DB
+  export DATABASE_URL_LIVE="postgresql://..."
+  EXECUTION_MODE=live alembic upgrade head
+
+  # One-off URL (overrides env)
+  alembic -x url="postgresql://..." upgrade head
+
+Generate a new revision after editing src/storage/models.py:
+  EXECUTION_MODE=paper alembic revision --autogenerate -m "describe change"

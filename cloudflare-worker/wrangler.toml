@@ -1,0 +1,12 @@
+name = "insight-alpha"
+main = "src/index.js"
+compatibility_date = "2026-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+# Secrets (set via `wrangler secret put`):
+#   KITE_API_KEY
+#   KITE_API_SECRET
+#   DATABASE_URL_PAPER
+#   DATABASE_URL_LIVE
+#   TELEGRAM_BOT_TOKEN
+#   TELEGRAM_CHAT_ID

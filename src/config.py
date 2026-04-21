@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # --- Sub-models ---
@@ -167,6 +167,23 @@ class StrategiesConfig(BaseModel):
 
 class DatabaseConfig(BaseModel):
     url: str = "sqlite:///insight_alpha.db"
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def _expand_env(cls, v: str) -> str:
+        """Expand ${VAR} tokens from environment.
+
+        If the token remains unexpanded (env var not set), fall back to a
+        local SQLite file so offline dev still works. Production deploys must
+        set the env var — callers should surface this via logging.
+        """
+        if not isinstance(v, str):
+            return v
+        expanded = os.path.expandvars(v)
+        if "${" in expanded:
+            mode = os.getenv("EXECUTION_MODE", "paper")
+            return f"sqlite:///insight_alpha_{mode}.db"
+        return expanded
 
 
 class LoggingConfig(BaseModel):

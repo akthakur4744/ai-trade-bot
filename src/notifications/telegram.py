@@ -213,6 +213,67 @@ class TelegramNotifier:
             return False
         return self._send(f"\u26a0\ufe0f *ALERT*\n{self._escape_md(message)}")
 
+    def send_plain(self, text: str) -> Optional[int]:
+        """Send a plain-text (no Markdown escaping) message; return the message_id."""
+        if not self.is_configured:
+            return None
+        url = f"{TELEGRAM_API_BASE.format(token=self._token)}/sendMessage"
+        try:
+            resp = httpx.post(
+                url,
+                json={
+                    "chat_id": self._chat_id,
+                    "text": text,
+                    "disable_web_page_preview": True,
+                },
+                timeout=self._timeout,
+            )
+            data = resp.json()
+            if resp.status_code == 200 and data.get("ok"):
+                return int(data["result"]["message_id"])
+            logger.warning("telegram_send_plain_failed", description=data.get("description", ""))
+        except httpx.HTTPError as e:
+            logger.error("telegram_http_error", error=str(e))
+        return None
+
+    def process_updates_once(
+        self,
+        offset: int,
+        handler: Optional[Callable[[str, str], None]] = None,
+    ) -> int:
+        """One-shot getUpdates (short poll). Returns the next offset to persist.
+
+        Designed for cloud Routines: called every run instead of a long-lived
+        daemon. `handler(action, signal_id)` is invoked for every
+        callback_query parsed the same way as `_poll_callbacks`.
+        """
+        if not self.is_configured:
+            return offset
+        url = f"{TELEGRAM_API_BASE.format(token=self._token)}/getUpdates"
+        try:
+            resp = httpx.get(
+                url,
+                params={"offset": offset, "timeout": 0, "allowed_updates": ["callback_query"]},
+                timeout=10.0,
+            )
+            data = resp.json()
+        except httpx.HTTPError as e:
+            logger.error("telegram_poll_once_http_error", error=str(e))
+            return offset
+
+        if not data.get("ok"):
+            return offset
+
+        next_offset = offset
+        self._callback_handler = handler
+        for update in data.get("result", []):
+            update_id = update.get("update_id", 0)
+            next_offset = max(next_offset, update_id + 1)
+            cb = update.get("callback_query")
+            if cb:
+                self._handle_callback(cb)
+        return next_offset
+
     def update_signal_message(self, message_id: int, action: TradeAction, symbol: str) -> bool:
         """Update the original signal message to show the user's action."""
         if not self.is_configured or not message_id:

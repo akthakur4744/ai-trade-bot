@@ -103,9 +103,11 @@ class TradingEngine:
         self._db = Database(config.database.url)
         self._db.create_tables()
 
-        # Kite Connect — load today's cached token
-        self._kite_client = KiteClient()
-        self._kite_client.authenticate()  # Uses cached token from web auth
+        # Kite Connect — prefer the Neon-backed session (Cloudflare Worker
+        # writes the token after the user logs in via Telegram link). Falls
+        # back to the local file cache for legacy/offline dev.
+        self._kite_client = KiteClient(db=self._db)
+        self._kite_client.authenticate()
         self._kite = self._kite_client.kite
 
         # Data providers
