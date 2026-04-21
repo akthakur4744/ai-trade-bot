@@ -28,7 +28,19 @@ class Database:
     """Manages SQLAlchemy engine and sessions."""
 
     def __init__(self, url: str = "sqlite:///insight_alpha.db") -> None:
-        self.engine = create_engine(url, echo=False)
+        self._is_sqlite = url.startswith("sqlite")
+        if self._is_sqlite:
+            self.engine = create_engine(url, echo=False)
+        else:
+            # Postgres (Neon) — pool with pre-ping so idle connections recycle.
+            self.engine = create_engine(
+                url,
+                echo=False,
+                pool_pre_ping=True,
+                pool_size=5,
+                max_overflow=10,
+                pool_recycle=1800,
+            )
         self._session_factory = sessionmaker(bind=self.engine)
 
         # Enable WAL mode for SQLite concurrent read/write safety

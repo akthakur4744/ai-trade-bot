@@ -14,7 +14,8 @@ risk:
   max_capital_deployed: 15000
 
 database:
-  url: "sqlite:///insight_alpha_live.db"
+  # Set DATABASE_URL_LIVE to the Neon live DB URL.
+  url: "${DATABASE_URL_LIVE}"
 
 logging:
   level: "INFO"

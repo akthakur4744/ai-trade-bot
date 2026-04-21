@@ -1,24 +1,35 @@
-# Pre-Market Check (08:55 – 09:15 IST)
+# Pre-Market Check (09:00 IST)
 
-Run before every trading session. Goal: catch auth/config/regime issues before the engine arms.
+**Schedule:** daily (cron: `30 3 * * 1-5` UTC).
+
+Run before every trading session. Goal: catch auth/config/regime issues
+before the engine arms.
 
 ## Steps
 
-1. **Kite auth**
-   - Read `~/.insight_alpha/kite_token.json`; confirm `access_token` present and `generated_at` is today.
-   - If missing/stale, run `python scripts/kite_auto_login.py --headed` and tail `~/.insight_alpha/auto_login.log`.
+1. **Kite session**
+   - Read `kite_access_token` from Neon `app_state`. Confirm
+     `kite_session_expires_at` is in the future.
+   - If stale/missing, Telegram alert "session not active" and exit 0 —
+     the `morning-login-prompt` routine will (or already did) re-post the
+     login link.
 2. **Config sanity**
-   - Load `config/paper.yaml` (or `live.yaml`) via `src/config.py`; report `execution.mode`, capital caps, `max_open_positions`.
-   - Flag any value that drifted from guardrails in `CLAUDE.md` (10k/trade, 30k deployed, 1k daily loss, 3 positions).
-3. **Watchlist**
-   - Print `config/watchlist.yaml` symbol count; warn if any symbol failed last LTP fetch (check recent structlog entries).
-4. **Regime**
-   - Invoke the `macro-regime-detector` skill. If regime = bear, confirm bullish-confidence cap (0.6) is active in config.
-5. **Overnight news**
-   - Invoke `market-news-analyst` for the last 16h on watchlist symbols; surface anything with impact ≥ high.
-6. **Open positions & GTTs**
-   - Query the DB: open positions, active triggers, GTT OCO status. Any position without exchange GTT protection is a red flag — run `gtt-reconcile.md`.
+   - Load `config/paper.yaml` (or `live.yaml`) via `src/config.py`; report
+     `execution.mode`, capital caps, `max_open_positions`.
+   - Flag any value that drifted from guardrails in `CLAUDE.md` (10k/trade,
+     30k deployed, 1k daily loss, 3 positions).
+3. **Watchlist** — read `config/watchlist.yaml` symbol count; warn if any
+   symbol failed last LTP fetch (check structlog entries in Neon `app_state`
+   if we persist them, else skip).
+4. **Regime** — invoke the `macro-regime-detector` skill. If regime = bear,
+   confirm bullish-confidence cap (0.6) is active in config.
+5. **Overnight news** — invoke `market-news-analyst` for the last 16h on
+   watchlist symbols; surface anything with impact ≥ high.
+6. **Open positions & GTTs** — query Neon: open positions, active triggers,
+   GTT OCO status. Any position without exchange GTT protection is a red
+   flag — run `gtt-reconcile.md`.
 
 ## Output
 
-One-screen summary: ✅ / ⚠️ / ❌ per step, with exact commands to fix any ❌.
+One-screen summary to Telegram: ✅ / ⚠️ / ❌ per step, with exact commands
+to fix any ❌.

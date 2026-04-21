@@ -27,7 +27,7 @@ Data Pipeline -> Indicators -> Strategies -> AI Agents -> Scoring -> Filtering -
 - Python 3.11+, `kiteconnect` (Zerodha), `anthropic` (Claude API)
 - `pandas`/`numpy` for data, `pydantic` for config validation, `SQLAlchemy` for DB
 - `FastAPI` + `Jinja2` web dashboard, `uvicorn` ASGI
-- SQLite (paper) / PostgreSQL (live), `APScheduler` for market-hours loop
+- Neon Postgres — two separate DBs (`paper`, `live`); URL chosen per `EXECUTION_MODE`. Schema via Alembic. `APScheduler` for market-hours loop. Local SQLite retained as offline-dev fallback.
 - `structlog` structured JSON logging
 - Telegram Bot API: interactive push notifications + inline keyboards
 
@@ -43,7 +43,7 @@ Data Pipeline -> Indicators -> Strategies -> AI Agents -> Scoring -> Filtering -
 - `src/risk/` — Guardrails, position sizing, portfolio tracker, kill switch
 - `src/execution/` — Broker ABC, paper broker, live broker, order manager, auto-exit, **auto-sell manager**
 - `src/notifications/` — Telegram w/ interactive buttons (free, recommended), WhatsApp (Twilio)
-- `src/storage/` — SQLAlchemy ORM (7 tables): positions, triggers, pending signals, app state
+- `src/storage/` — SQLAlchemy ORM (9 tables): signals, trades, daily_metrics, position_state, auto_sell_trigger_state, pending_signal_state, pending_memory_updates, app_state + Alembic migrations under `src/storage/migrations/`
 - `src/feedback/` — Performance tracking + reporting
 - `src/web/` — FastAPI dashboard (Kite OAuth, engine control, approval workflow, portfolio view)
 - `tests/` — unit/, integration/, backtest/
@@ -114,6 +114,14 @@ python start.py
 # Run the agent standalone (paper mode, requires pre-auth)
 python -m src.main
 
+# Apply DB schema (run once per Neon DB, and after any models.py change)
+EXECUTION_MODE=paper alembic upgrade head
+EXECUTION_MODE=live  alembic upgrade head
+
+# One-time data copy: local SQLite -> Neon (paper)
+python scripts/migrate_sqlite_to_neon.py \
+  --source sqlite:///insight_alpha_paper.db --target "$DATABASE_URL_PAPER"
+
 # Run tests
 pytest tests/
 
@@ -123,19 +131,15 @@ ruff check src/ tests/
 # Backtest a strategy
 python scripts/backtest_cli.py --strategy mean_reversion --period 2y
 
-# Kite auth (manual — use dashboard instead)
-python scripts/kite_auth.py
+# Kite login (production)
+# Fully manual on mobile — the `morning-login-prompt` Cloud Routine posts a
+# Telegram link at 08:55 IST; user taps, logs in, Cloudflare Worker writes
+# the access_token to Neon `app_state`. No TOTP scripting. See
+# `cloudflare-worker/README.md` and `routines/morning-login-prompt.md`.
 
-# Kite auto-login (fully automated daily login via External TOTP + headless browser)
-# Requires: External 2FA TOTP enabled in Kite profile; KITE_USER_ID, KITE_PASSWORD,
-# KITE_TOTP_SECRET in .env; `playwright install chromium` run once.
-# ToS caveat: automated Kite login violates Zerodha ToS — use at your own risk.
-python scripts/kite_auto_login.py              # headless; idempotent (no-op if cached)
-python scripts/kite_auto_login.py --headed     # debug (visible browser; 30s pause on error)
-./scripts/install_cron.sh                      # install launchd schedule (Mon-Fri 08:55 local)
-./scripts/install_cron.sh uninstall            # remove the schedule
-launchctl start com.insightalpha.kiteauth      # dry-run the scheduled job immediately
-tail -f ~/.insight_alpha/auto_login.log        # watch scheduler output
+# Kite login (manual debug)
+python scripts/kite_auth.py                    # dashboard-style manual OAuth
+python scripts/kite_auto_login.py --headed     # retained for local debugging ONLY
 ```
 
 ## Available Skills (in .claude/skills/)
@@ -191,10 +195,29 @@ Friday 15:40 IST → WeeklyReviewAgent drafts WEEKLY-REVIEW / LEARNINGS / STRATE
 - `src/storage/models.py::PendingMemoryUpdate` — approval-queue table
 - `src/notifications/telegram.py::send_memory_update_for_approval` — approval UI
 
+## Deployment topology (cloud migration)
+
+- **Cloud Routines** (Claude Code, 1-hour cron floor): all scheduled work —
+  `morning-login-prompt`, `pre-market-check`, `signal-scan`, `telegram-poll`,
+  `heartbeat`, `gtt-reconcile`, `memory-approval-sweeper`, reviews, reports.
+- **Fly.io always-on worker** (`shared-cpu-1x`, 256 MB, free tier): runs
+  `auto-sell-tick` every 60s. This is the only non-Routine component —
+  cloud Routines can't go sub-hourly.
+- **Cloudflare Worker** (free tier): `/kite/callback` handler that receives
+  Zerodha's redirect, exchanges `request_token` for `access_token`, and
+  writes it to both Neon DBs. See `cloudflare-worker/`.
+- **Neon Postgres**: two separate DBs (`paper`, `live`). Schema via Alembic.
+- **Market calendar**: `src/utils/market_calendar.py` — every routine
+  fail-fasts if `is_market_open()` is False.
+
 ## Important Notes
 
 - Market hours: 09:15 - 15:30 IST
-- Kite tokens expire daily (SEBI mandate) — dashboard handles OAuth manually; `scripts/kite_auto_login.py` + External TOTP automates it fully. Script captures `request_token` via Playwright route interception + context request/response listeners, so it works even when the Kite app's configured redirect URI is unreachable. Token cache: `~/.insight_alpha/kite_token.json`.
+- Kite tokens expire daily at 15:30 IST (SEBI mandate). Daily login is
+  **manual on mobile**: user taps the `morning-login-prompt` Telegram link,
+  Zerodha redirects to the Cloudflare Worker, Worker writes `access_token`
+  to Neon `app_state`. All routines read the token via
+  `src/data/kite_session.py::get_active_session()`.
 - Kite rate limits: 3 req/s (historical), 10 req/s (other)
 - Paper broker never calls Kite order APIs — LTP only for simulated fills
 - Sentiment decay: 15% reduction to news_strength every 30min

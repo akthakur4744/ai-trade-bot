@@ -6,7 +6,9 @@ execution:
     fill_delay_ms: 100
 
 database:
-  url: "sqlite:///insight_alpha_paper.db"
+  # Set DATABASE_URL_PAPER to the Neon paper DB URL.
+  # Falls back to local SQLite when the env var is unset (for offline dev).
+  url: "${DATABASE_URL_PAPER}"
 
 logging:
   level: "DEBUG"

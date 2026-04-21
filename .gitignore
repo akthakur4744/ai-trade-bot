@@ -38,3 +38,7 @@ data_cache/
 
 # Claude local settings
 .claude/settings.local.json
+
+# Node
+node_modules/
+
