@@ -33,6 +33,8 @@ class Database:
             self.engine = create_engine(url, echo=False)
         else:
             # Postgres (Neon) — pool with pre-ping so idle connections recycle.
+            # connect_timeout: max seconds to establish TCP connection (psycopg2 arg).
+            # pool_timeout: max seconds to wait for a connection from the pool.
             self.engine = create_engine(
                 url,
                 echo=False,
@@ -40,6 +42,8 @@ class Database:
                 pool_size=5,
                 max_overflow=10,
                 pool_recycle=1800,
+                pool_timeout=8,
+                connect_args={"connect_timeout": 8},
             )
         self._session_factory = sessionmaker(bind=self.engine)
 
