@@ -12,7 +12,7 @@ import sys
 from datetime import datetime, timezone
 
 import structlog
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.config import load_config
@@ -40,19 +40,24 @@ def _make_engine(url: str):
     # pool_pre_ping disabled: this is a cold pool, so all checkouts create
     # a fresh connection anyway. Keeping it enabled would fire an extra
     # SELECT 1 with no timeout before our statement_timeout is active.
-    return create_engine(
+    engine = create_engine(
         url,
         echo=False,
         pool_size=1,
         max_overflow=0,
         pool_pre_ping=False,
-        connect_args={
-            "connect_timeout": _CONNECT_TIMEOUT_SEC,
-            # statement_timeout applied at connection startup — covers every
-            # query (including any implicit ones) without a separate SET call.
-            "options": f"-c statement_timeout={_STMT_TIMEOUT_MS}",
-        },
+        connect_args={"connect_timeout": _CONNECT_TIMEOUT_SEC},
     )
+
+    # Neon's pooled endpoint rejects `options=-c statement_timeout=...` in the
+    # libpq startup packet, so we apply it via SET on each new connection.
+    @event.listens_for(engine, "connect")
+    def _set_timeout(dbapi_conn, _):
+        cur = dbapi_conn.cursor()
+        cur.execute(f"SET statement_timeout = {_STMT_TIMEOUT_MS}")
+        cur.close()
+
+    return engine
 
 
 def _read_ts(session: Session, key: str):
