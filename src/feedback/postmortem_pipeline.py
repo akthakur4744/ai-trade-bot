@@ -32,7 +32,7 @@ EXPIRY_MINUTES = 60
 class PostmortemPipeline:
     def __init__(
         self,
-        agent: PostmortemAgent,
+        agent: Optional[PostmortemAgent],
         writer: MemoryWriter,
         telegram: TelegramNotifier,
         db: Database,
@@ -65,6 +65,10 @@ class PostmortemPipeline:
             return None
 
         recurrence_count, recurrence_hint = self._recurrence(trade_row)
+
+        if self._agent is None:
+            logger.error("postmortem_agent_not_configured")
+            return None
 
         draft = self._agent.draft(
             outcome=outcome,
