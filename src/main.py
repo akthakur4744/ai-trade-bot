@@ -734,6 +734,23 @@ class TradingEngine:
 
     # ---- Auto-Sell Monitoring ----
 
+    def tick_auto_sell(self) -> None:
+        """Public entrypoint for the Fly.io always-on worker.
+
+        Re-reads the Kite session (handles daily 15:30 IST token rollover)
+        and re-loads auto-sell triggers from DB (so newly-approved
+        positions created by other processes — e.g. the `telegram_poll`
+        routine — get picked up immediately).
+        """
+        try:
+            self._kite_client.authenticate()
+        except Exception as e:
+            logger.error("auto_sell_tick_reauth_failed", error=str(e))
+            return
+        self._auto_sell._triggers.clear()
+        self._auto_sell._load_from_db()
+        self._monitor_auto_sell_positions()
+
     def _monitor_auto_sell_positions(self) -> None:
         """Check all auto-sell triggers against current market data.
 

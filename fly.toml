@@ -1,0 +1,21 @@
+app = "insight-alpha-auto-sell"
+primary_region = "bom"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  EXECUTION_MODE = "paper"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  cpus = 1
+
+[processes]
+  worker = "python -m workers.auto_sell_tick"
+
+# No [[services]] — this is a long-running worker, not an HTTP service.
+# Don't auto-stop; we need the 60s loop to be continuous during market hours.
+[deploy]
+  strategy = "immediate"
