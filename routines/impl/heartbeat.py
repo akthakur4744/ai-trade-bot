@@ -1,24 +1,25 @@
 """Cloud Routine entrypoint: watchdog.
 
 Emits a single consolidated Telegram alert if any of these are stale:
-  - last_signal_scan_ts  (> 90 min = 1.5 × scan cadence)
+  - last_signal_scan_ts   (> 90 min = 1.5 × scan cadence)
   - last_telegram_poll_ts (> 90 min)
   - last_autosell_tick_ts (> 2 min — only checked during market hours)
   - kite_session missing/expired during market hours
+
+The cloud Routine sandbox cannot reach Neon on port 5432 (HTTPS-only
+egress), so this reads `app_state` via the Cloudflare Worker proxy
+(`GET /heartbeat/state`) instead of connecting to Postgres directly.
 """
 from __future__ import annotations
 
+import os
 import sys
 from datetime import datetime, timezone
 
+import httpx
 import structlog
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import Session, sessionmaker
 
-from src.config import load_config
-from src.data.kite_session import get_active_session
 from src.notifications.telegram import TelegramNotifier
-from src.storage.models import AppState
 from src.utils.market_calendar import is_market_open
 
 logger = structlog.get_logger(__name__)
@@ -29,77 +30,67 @@ THRESHOLDS_MIN = {
     "last_autosell_tick_ts": 2,
 }
 
-_CONNECT_TIMEOUT_SEC = 4   # per-IP attempt; libpq tries each DNS address in turn
-_STMT_TIMEOUT_MS = 5000
+_HTTP_TIMEOUT_SEC = 10.0
 
 
-def _make_engine(url: str):
-    """Minimal, fast-fail engine for the heartbeat watchdog."""
-    if url.startswith("sqlite"):
-        return create_engine(url, echo=False)
-    # pool_pre_ping disabled: this is a cold pool, so all checkouts create
-    # a fresh connection anyway. Keeping it enabled would fire an extra
-    # SELECT 1 with no timeout before our statement_timeout is active.
-    engine = create_engine(
-        url,
-        echo=False,
-        pool_size=1,
-        max_overflow=0,
-        pool_pre_ping=False,
-        connect_args={"connect_timeout": _CONNECT_TIMEOUT_SEC},
-    )
-
-    # Neon's pooled endpoint rejects `options=-c statement_timeout=...` in the
-    # libpq startup packet, so we apply it via SET on each new connection.
-    @event.listens_for(engine, "connect")
-    def _set_timeout(dbapi_conn, _):
-        cur = dbapi_conn.cursor()
-        cur.execute(f"SET statement_timeout = {_STMT_TIMEOUT_MS}")
-        cur.close()
-
-    return engine
-
-
-def _read_ts(session: Session, key: str):
-    row = session.query(AppState).filter_by(key=key).first()
-    if not row:
+def _parse_ts(raw: str | None) -> datetime | None:
+    if not raw:
         return None
     try:
-        ts = datetime.fromisoformat(row.value)
-        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+        ts = datetime.fromisoformat(raw)
     except ValueError:
         return None
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+
+
+def _fetch_state(url: str, token: str, mode: str) -> dict:
+    resp = httpx.get(
+        url,
+        params={"mode": mode},
+        headers={"X-Heartbeat-Token": token},
+        timeout=_HTTP_TIMEOUT_SEC,
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
 def main() -> int:
-    cfg = load_config()
-    engine = _make_engine(cfg.database.url)
-    SessionLocal = sessionmaker(bind=engine)
+    url = os.environ.get("HEARTBEAT_STATE_URL")
+    token = os.environ.get("HEARTBEAT_TOKEN")
+    mode = os.environ.get("EXECUTION_MODE", "paper")
+    if not url or not token:
+        logger.error("heartbeat_misconfigured", have_url=bool(url), have_token=bool(token))
+        return 1
 
     now = datetime.now(timezone.utc)
-    alerts: list[str] = []
     market_open = is_market_open()
+    alerts: list[str] = []
 
     try:
-        with SessionLocal() as session:
-            for key, max_age_min in THRESHOLDS_MIN.items():
-                if key == "last_autosell_tick_ts" and not market_open:
-                    continue
-                ts = _read_ts(session, key)
-                if ts is None:
-                    if market_open:
-                        alerts.append(f"{key}: never seen")
-                    continue
-                age = (now - ts).total_seconds() / 60.0
-                if age > max_age_min:
-                    alerts.append(f"{key}: {age:.0f} min stale (threshold {max_age_min})")
-
-            if market_open:
-                if not get_active_session(session):
-                    alerts.append("kite_session: not active")
-
+        state = _fetch_state(url, token, mode)
     except Exception as e:
-        alerts.append(f"db_unreachable: {e}")
+        alerts.append(f"state_fetch_failed: {e}")
+        state = None
+
+    if state is not None:
+        for key, max_age_min in THRESHOLDS_MIN.items():
+            if key == "last_autosell_tick_ts" and not market_open:
+                continue
+            ts = _parse_ts(state.get(key))
+            if ts is None:
+                if market_open:
+                    alerts.append(f"{key}: never seen")
+                continue
+            age = (now - ts).total_seconds() / 60.0
+            if age > max_age_min:
+                alerts.append(f"{key}: {age:.0f} min stale (threshold {max_age_min})")
+
+        if market_open:
+            present = bool(state.get("kite_access_token_present"))
+            exp = _parse_ts(state.get("kite_session_expires_at"))
+            active = present and exp is not None and exp > now
+            if not active:
+                alerts.append("kite_session: not active")
 
     if not alerts:
         logger.info("heartbeat_ok")

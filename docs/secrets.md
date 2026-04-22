@@ -21,6 +21,8 @@ All runtime secrets live in **three** places. Keep them in sync.
 | `DATABASE_URL_PAPER`    | Paper-mode routines, Worker     | .env + Claude + Cloudflare              | On compromise — Neon reset password     |
 | `DATABASE_URL_LIVE`     | Live-mode routines, Worker      | .env + Claude + Cloudflare              | Same                                    |
 | `GITHUB_PAT`            | Memory-merge flow (telegram-poll) | Claude trigger env                     | Rotate every 90 days                    |
+| `HEARTBEAT_TOKEN`       | `heartbeat` routine, Worker     | Claude + Cloudflare                     | On compromise — rotate in both          |
+| `HEARTBEAT_STATE_URL`   | `heartbeat` routine             | Claude                                  | Stable — Worker URL                     |
 
 ## Rotation drill
 

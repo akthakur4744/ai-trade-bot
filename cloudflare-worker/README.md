@@ -17,12 +17,24 @@ npx wrangler secret put DATABASE_URL_PAPER
 npx wrangler secret put DATABASE_URL_LIVE
 npx wrangler secret put TELEGRAM_BOT_TOKEN
 npx wrangler secret put TELEGRAM_CHAT_ID
+npx wrangler secret put HEARTBEAT_TOKEN   # any long random string; mirror to Cloud Routine env
 npx wrangler deploy
 ```
 
 After `wrangler deploy`, note the `*.workers.dev` URL. Register it in the
 Zerodha Developer Console as the redirect URL for your app:
 `https://insight-alpha.<your-subdomain>.workers.dev/kite/callback`.
+
+## Endpoints
+
+- `GET /kite/callback` — Zerodha OAuth redirect handler (see Flow below).
+- `GET /heartbeat/state?mode=paper|live` — read-only view of the watchdog
+  keys in `app_state`. Requires `X-Heartbeat-Token: $HEARTBEAT_TOKEN` header.
+  Returns JSON with `last_signal_scan_ts`, `last_telegram_poll_ts`,
+  `last_autosell_tick_ts`, `kite_access_token_present`,
+  `kite_session_expires_at`. Exists because the Cloud Routine sandbox
+  blocks outbound Postgres (5432) — the heartbeat routine reads state over
+  HTTPS via this proxy instead of connecting to Neon directly.
 
 ## Flow
 

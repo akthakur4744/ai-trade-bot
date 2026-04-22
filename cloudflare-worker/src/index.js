@@ -1,10 +1,13 @@
-// Kite login redirect handler.
+// Insight-Alpha Cloudflare Worker.
 //
 // GET /kite/callback?request_token=...&status=success
-//   -> POST https://api.kite.trade/session/token  (generate_session)
-//   -> write access_token to Neon (both DBs)
-//   -> Telegram confirmation
-//   -> return "✅ Logged in" HTML
+//   -> exchange request_token for access_token, write to Neon, confirm via Telegram.
+//
+// GET /heartbeat/state?mode=paper|live
+//   -> read watchdog keys from Neon app_state, return JSON.
+//      Header X-Heartbeat-Token must equal env.HEARTBEAT_TOKEN.
+//      Exists because the cloud Routine sandbox cannot reach Neon on 5432
+//      (HTTPS-only egress); this proxies the read over 443.
 
 import { neon } from "@neondatabase/serverless";
 
@@ -72,28 +75,85 @@ async function sendTelegram(env, text) {
   });
 }
 
+// Constant-time string compare so we don't leak token length via timing.
+function timingSafeEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+const HEARTBEAT_KEYS = [
+  "last_signal_scan_ts",
+  "last_telegram_poll_ts",
+  "last_autosell_tick_ts",
+  "kite_access_token",
+  "kite_session_expires_at",
+];
+
+async function readHeartbeatState(dbUrl) {
+  const sql = neon(dbUrl);
+  const rows = await sql`
+    SELECT key, value FROM app_state WHERE key = ANY(${HEARTBEAT_KEYS})
+  `;
+  const out = Object.fromEntries(HEARTBEAT_KEYS.map((k) => [k, null]));
+  for (const r of rows) out[r.key] = r.value;
+  // Don't ship the raw token back — the caller only needs to know it's set.
+  out.kite_access_token_present = out.kite_access_token != null;
+  delete out.kite_access_token;
+  return out;
+}
+
+async function handleKiteCallback(url, env) {
+  const requestToken = url.searchParams.get("request_token");
+  const status = url.searchParams.get("status");
+  if (status !== "success" || !requestToken) {
+    return new Response("Login failed", { status: 400 });
+  }
+  try {
+    const accessToken = await generateSession(env, requestToken);
+    const exp = expiresAtIso();
+    await writeToken(env.DATABASE_URL_PAPER, accessToken, exp);
+    await writeToken(env.DATABASE_URL_LIVE, accessToken, exp);
+    await sendTelegram(env, `✅ Kite session active until 15:30 IST.`);
+    return new Response(OK_HTML, { headers: { "Content-Type": "text/html" } });
+  } catch (err) {
+    await sendTelegram(env, `❌ Kite login failed: ${err.message}`);
+    return new Response(`Error: ${err.message}`, { status: 500 });
+  }
+}
+
+async function handleHeartbeatState(request, url, env) {
+  if (!env.HEARTBEAT_TOKEN) return new Response("Not configured", { status: 503 });
+  const provided = request.headers.get("x-heartbeat-token") || "";
+  if (!timingSafeEqual(provided, env.HEARTBEAT_TOKEN)) {
+    return new Response("Forbidden", { status: 403 });
+  }
+  const mode = url.searchParams.get("mode");
+  const dbUrl = mode === "live" ? env.DATABASE_URL_LIVE : mode === "paper" ? env.DATABASE_URL_PAPER : null;
+  if (!dbUrl) return new Response("mode must be paper|live", { status: 400 });
+  try {
+    const state = await readHeartbeatState(dbUrl);
+    return new Response(JSON.stringify(state), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 502,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (request.method !== "GET" || url.pathname !== "/kite/callback") {
-      return new Response("Not found", { status: 404 });
+    if (request.method === "GET" && url.pathname === "/kite/callback") {
+      return handleKiteCallback(url, env);
     }
-    const requestToken = url.searchParams.get("request_token");
-    const status = url.searchParams.get("status");
-    if (status !== "success" || !requestToken) {
-      return new Response("Login failed", { status: 400 });
+    if (request.method === "GET" && url.pathname === "/heartbeat/state") {
+      return handleHeartbeatState(request, url, env);
     }
-
-    try {
-      const accessToken = await generateSession(env, requestToken);
-      const exp = expiresAtIso();
-      await writeToken(env.DATABASE_URL_PAPER, accessToken, exp);
-      await writeToken(env.DATABASE_URL_LIVE, accessToken, exp);
-      await sendTelegram(env, `✅ Kite session active until 15:30 IST.`);
-      return new Response(OK_HTML, { headers: { "Content-Type": "text/html" } });
-    } catch (err) {
-      await sendTelegram(env, `❌ Kite login failed: ${err.message}`);
-      return new Response(`Error: ${err.message}`, { status: 500 });
-    }
+    return new Response("Not found", { status: 404 });
   },
 };
