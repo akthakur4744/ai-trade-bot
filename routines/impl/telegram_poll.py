@@ -1,9 +1,15 @@
 """Cloud Routine entrypoint: Telegram callback poll.
 
 Reads queued callback_query updates from Telegram and dispatches them to
-the same handler used by the long-poll daemon. Persists the next update
-offset in `app_state['telegram_update_offset']` so consecutive runs don't
+the appropriate pipeline. Persists the next update offset in
+`app_state['telegram_update_offset']` so consecutive runs don't
 re-process updates.
+
+Routing:
+  - `memory_update:<id>:<approve|reject>`  → PostmortemPipeline.handle_memory_callback
+      (lightweight — only needs DB + MemoryWriter + Telegram; no Claude agent)
+  - `approve|ignore|auto_sell:<signal_id>` → TradingEngine._handle_telegram_callback
+      (heavy — lazy-imported only when one of these callbacks arrives)
 """
 from __future__ import annotations
 
@@ -55,15 +61,60 @@ def _heartbeat(db) -> None:
         s.commit()
 
 
-def _handle(action: str, signal_id: str) -> None:
-    """Dispatch a callback to the appropriate pipeline.
+class _CallbackRouter:
+    """Lazily constructs pipelines needed for each callback class."""
 
-    TODO(Phase-E): wire to PostmortemPipeline.handle_memory_callback for
-    `memory_update:*` events and to the pending-signal approval flow for
-    `approve|ignore|auto_sell:*`. For now, log so we can verify the routine
-    is picking up button presses.
-    """
-    logger.info("telegram_callback", action=action, signal_id=signal_id)
+    def __init__(self, cfg, db, tg):
+        self._cfg = cfg
+        self._db = db
+        self._tg = tg
+        self._memory = None
+        self._engine = None
+
+    def _memory_pipeline(self):
+        if self._memory is None:
+            from src.feedback.memory_writer import MemoryWriter
+            from src.feedback.postmortem_pipeline import PostmortemPipeline
+            self._memory = PostmortemPipeline(
+                agent=None,
+                writer=MemoryWriter(),
+                telegram=self._tg,
+                db=self._db,
+            )
+        return self._memory
+
+    def _engine_instance(self):
+        if self._engine is None:
+            from src.main import TradingEngine
+            self._engine = TradingEngine(self._cfg)
+        return self._engine
+
+    def handle(self, action: str, signal_id: str) -> None:
+        logger.info("telegram_callback", action=action, signal_id=signal_id)
+
+        if action == "memory_update":
+            try:
+                pending_id_str, sub_action = signal_id.split(":", 1)
+                pending_id = int(pending_id_str)
+            except (ValueError, AttributeError):
+                logger.warning("memory_callback_malformed", signal_id=signal_id)
+                return
+            self._memory_pipeline().handle_memory_callback(pending_id, sub_action)
+            return
+
+        if action in ("approve", "ignore", "auto_sell"):
+            engine = self._engine_instance()
+            engine._handle_telegram_callback(action, signal_id)
+            return
+
+        logger.warning("telegram_callback_unknown_action", action=action)
+
+    def cleanup(self) -> None:
+        if self._engine is not None:
+            try:
+                self._engine._telegram.stop_callback_polling()
+            except Exception:
+                pass
 
 
 def main() -> int:
@@ -74,8 +125,13 @@ def main() -> int:
         logger.error("telegram_not_configured")
         return 2
 
+    router = _CallbackRouter(cfg, db, tg)
     offset = _get_offset(db)
-    next_offset = tg.process_updates_once(offset, handler=_handle)
+    try:
+        next_offset = tg.process_updates_once(offset, handler=router.handle)
+    finally:
+        router.cleanup()
+
     if next_offset != offset:
         _set_offset(db, next_offset)
     _heartbeat(db)
