@@ -10,3 +10,4 @@ compatibility_flags = ["nodejs_compat"]
 #   DATABASE_URL_LIVE
 #   TELEGRAM_BOT_TOKEN
 #   TELEGRAM_CHAT_ID
+#   HEARTBEAT_TOKEN      # shared secret for GET /heartbeat/state

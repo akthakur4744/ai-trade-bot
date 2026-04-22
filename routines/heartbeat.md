@@ -11,6 +11,21 @@ Watchdog that alerts if any critical trigger has stopped firing:
 - Kite session stale / missing during market hours → "⚠️ No Kite session"
 - Two consecutive routine failures (tracked in `app_state`) → alert
 
+## State read path
+
+Cloud Routines can't reach Neon on port 5432 (HTTPS-only egress). This
+routine reads `app_state` via the Cloudflare Worker proxy:
+
+```
+GET $HEARTBEAT_STATE_URL?mode=$EXECUTION_MODE
+  Header: X-Heartbeat-Token: $HEARTBEAT_TOKEN
+```
+
+Required env vars on the Cloud Routine:
+- `HEARTBEAT_STATE_URL` — e.g. `https://insight-alpha.<sub>.workers.dev/heartbeat/state`
+- `HEARTBEAT_TOKEN` — must match the Worker secret of the same name
+- `EXECUTION_MODE` — `paper` or `live`
+
 ## Data contract
 
 Every trigger updates a well-known `app_state` key on success:
