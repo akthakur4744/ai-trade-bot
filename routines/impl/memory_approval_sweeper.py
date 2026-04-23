@@ -25,6 +25,7 @@ def main() -> int:
     tg = TelegramNotifier()
 
     now = datetime.now(timezone.utc)
+    count = 0
     try:
         with db.get_session() as s:
             expired = (
@@ -33,7 +34,6 @@ def main() -> int:
                 .filter(PendingMemoryUpdate.expires_at < now)
                 .all()
             )
-            count = 0
             for row in expired:
                 row.status = "expired"
                 if tg.is_configured and row.telegram_message_id:
@@ -42,8 +42,6 @@ def main() -> int:
             s.commit()
     except OperationalError as exc:
         logger.warning("memory_sweeper_db_unavailable", error=str(exc).split("\n")[0])
-        logger.info("memory_sweeper_done", expired_count=0)
-        return 0
     logger.info("memory_sweeper_done", expired_count=count)
     return 0
 
