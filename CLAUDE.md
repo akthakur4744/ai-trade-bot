@@ -168,14 +168,12 @@ Curated markdown memory at `memory/` sits on top of the SQL layer and drives con
 ```
 Trade closes → PostmortemAgent drafts MISTAKES/LEARNINGS/STRATEGY diffs via Claude
             → row inserted in `pending_memory_updates` table
-            → Telegram message with [Approve] [Reject] buttons (60-min expiry)
-            → Approve: MemoryWriter creates branch, applies diffs, pushes, opens GitHub PR
-                       Telegram message edited to "PR opened: <url>"
+            → Telegram message with [Approve & Commit] [Reject] buttons (60-min expiry)
+            → Approve: MemoryWriter applies diffs + git commit + push, message edited to "Committed <sha>"
             → Reject: no file changes, message edited to "Rejected"
             → No action in 60 min: sweeper marks `expired`, message edited accordingly
 Friday 15:40 IST → WeeklyReviewAgent drafts WEEKLY-REVIEW / LEARNINGS / STRATEGY diffs → same Telegram gate
 ```
-No memory file is auto-merged — user must merge the PR on GitHub.
 
 **Rules (never bypass):**
 - **No Claude agent may edit `memory/*.md` directly.** All writes go through `src/feedback/memory_writer.py::MemoryWriter`, which is only invoked by `src/feedback/postmortem_pipeline.py::PostmortemPipeline.handle_memory_callback()` after a Telegram approve.
@@ -202,10 +200,9 @@ No memory file is auto-merged — user must merge the PR on GitHub.
 - **Cloud Routines** (Claude Code, 1-hour cron floor): all scheduled work —
   `morning-login-prompt`, `pre-market-check`, `signal-scan`, `telegram-poll`,
   `heartbeat`, `gtt-reconcile`, `memory-approval-sweeper`, reviews, reports.
-- **Fly.io always-on worker** (`shared-cpu-1x`, 256 MB, ~$2/mo): runs
-  `auto-sell-tick` every 60s via `workers/auto_sell_tick.py`. This is
-  the only non-Routine component — cloud Routines can't go sub-hourly.
-  Deploy: see `workers/README.md`.
+- **Fly.io always-on worker** (`shared-cpu-1x`, 256 MB, free tier): runs
+  `auto-sell-tick` every 60s. This is the only non-Routine component —
+  cloud Routines can't go sub-hourly.
 - **Cloudflare Worker** (free tier): `/kite/callback` handler that receives
   Zerodha's redirect, exchanges `request_token` for `access_token`, and
   writes it to both Neon DBs. See `cloudflare-worker/`.

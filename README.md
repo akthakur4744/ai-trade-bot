@@ -112,15 +112,11 @@ A curated markdown memory layer under `memory/` drives continuous learning on to
 | `memory/MISTAKES.md` | Append-only per-trade postmortems | Per trade close (on approval) |
 | `memory/WEEKLY-REVIEW.md` | Friday retrospective with letter grade | Weekly (on approval) |
 
-**Flow:** trade closes → `PostmortemAgent` drafts MISTAKES/LEARNINGS/STRATEGY diffs via Claude → row queued in `pending_memory_updates` → Telegram message with `[Approve] [Reject]` (60-min expiry) → on approve, `MemoryWriter` creates a branch, applies diffs, pushes, and **opens a GitHub PR** → you review + merge on GitHub → memory files land on `main`. Friday 15:40 IST runs the weekly review through the same gate.
-
-No memory file is ever auto-merged — a human merge is always required.
+**Flow:** trade closes → `PostmortemAgent` drafts MISTAKES/LEARNINGS/STRATEGY diffs via Claude → row queued in `pending_memory_updates` → Telegram message with `[Approve & Commit] [Reject]` (60-min expiry) → on approve, `MemoryWriter` applies diffs + `git commit` + `git push`. Friday 15:40 IST runs the weekly review through the same gate.
 
 Orchestrator and Researcher read `TRADING-STRATEGY.md` + `LEARNINGS.md` into their system prompts on startup; signals contradicting an active rule drop confidence by 0.1 and must cite the rule.
 
 Slash commands: `/postmortem <order_id>`, `/weekly-review`, `/promote-learning "<pattern>"`.
-
-**Required env for memory PRs:** `GITHUB_TOKEN` (fine-grained PAT: Contents + Pull requests write on this repo) must be set in the `telegram-poll` Routine's secrets.
 
 ## Configuration
 
