@@ -24,14 +24,17 @@ HEARTBEAT_KEY = "last_signal_scan_ts"
 
 
 def _heartbeat(db) -> None:
-    with db.get_session() as s:
-        row = s.query(AppState).filter_by(key=HEARTBEAT_KEY).first()
-        now = datetime.now(timezone.utc).isoformat()
-        if row:
-            row.value = now
-        else:
-            s.add(AppState(key=HEARTBEAT_KEY, value=now))
-        s.commit()
+    try:
+        with db.get_session() as s:
+            row = s.query(AppState).filter_by(key=HEARTBEAT_KEY).first()
+            now = datetime.now(timezone.utc).isoformat()
+            if row:
+                row.value = now
+            else:
+                s.add(AppState(key=HEARTBEAT_KEY, value=now))
+            s.commit()
+    except OperationalError as exc:
+        logger.warning("signal_scan_heartbeat_failed", error=str(exc).split("\n")[0])
 
 
 def main() -> int:

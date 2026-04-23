@@ -9,6 +9,7 @@ import sys
 from datetime import datetime, timezone
 
 import structlog
+from sqlalchemy.exc import OperationalError
 
 from src.config import load_config
 from src.notifications.telegram import TelegramNotifier
@@ -24,20 +25,25 @@ def main() -> int:
     tg = TelegramNotifier()
 
     now = datetime.now(timezone.utc)
-    with db.get_session() as s:
-        expired = (
-            s.query(PendingMemoryUpdate)
-            .filter(PendingMemoryUpdate.status == "pending")
-            .filter(PendingMemoryUpdate.expires_at < now)
-            .all()
-        )
-        count = 0
-        for row in expired:
-            row.status = "expired"
-            if tg.is_configured and row.telegram_message_id:
-                tg.update_memory_message(row.telegram_message_id, "expired")
-            count += 1
-        s.commit()
+    try:
+        with db.get_session() as s:
+            expired = (
+                s.query(PendingMemoryUpdate)
+                .filter(PendingMemoryUpdate.status == "pending")
+                .filter(PendingMemoryUpdate.expires_at < now)
+                .all()
+            )
+            count = 0
+            for row in expired:
+                row.status = "expired"
+                if tg.is_configured and row.telegram_message_id:
+                    tg.update_memory_message(row.telegram_message_id, "expired")
+                count += 1
+            s.commit()
+    except OperationalError as exc:
+        logger.warning("memory_sweeper_db_unavailable", error=str(exc).split("\n")[0])
+        logger.info("memory_sweeper_done", expired_count=0)
+        return 0
     logger.info("memory_sweeper_done", expired_count=count)
     return 0
 
