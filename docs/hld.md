@@ -47,10 +47,14 @@ Insight-Alpha is an AI-powered equity trading agent for Indian markets (NSE) via
 
 | System | Purpose | Protocol |
 |--------|---------|----------|
-| Zerodha Kite Connect | Market data (OHLCV, LTP), order placement | REST API, WebSocket |
-| Claude API (Anthropic) | News interpretation, signal scoring | REST API (tool_use) |
+| Zerodha Kite Connect | Market data (OHLCV, LTP), order placement, GTT | REST API, WebSocket |
+| Claude API (Anthropic) | News interpretation, signal scoring, memory drafts | REST API (tool_use) |
 | Telegram Bot API | Interactive notifications with inline keyboards | HTTP polling |
 | News RSS Feeds | Market news for sentiment analysis | HTTP/RSS |
+| Neon Postgres | Persistent state: two DBs (`paper`, `live`) | PostgreSQL |
+| Cloudflare Worker | Kite OAuth callback handler → writes token to Neon | HTTPS |
+| Fly.io | Always-on auto-sell-tick worker (60s cadence) | Docker + Fly Machines |
+| GitHub REST API | Opens PR per approved memory update | HTTPS (fine-grained PAT) |
 
 ---
 
@@ -75,10 +79,10 @@ Insight-Alpha is an AI-powered equity trading agent for Indian markets (NSE) via
 │   └─────────┘ └──────────┘ └────────┘ └─────────┘          │
 ├─────────────────────────────────────────────────────────────┤
 │                    PERSISTENCE LAYER                          │
-│   SQLAlchemy ORM  │  SQLite (paper) / PostgreSQL (live)      │
-│   7 tables: Signal, Trade, DailyMetric,                      │
+│   SQLAlchemy ORM + Alembic  │  Neon Postgres (paper + live)  │
+│   9 tables: Signal, Trade, DailyMetric,                      │
 │   PositionState, AutoSellTriggerState, PendingSignalState,   │
-│   AppState                                                   │
+│   PendingMemoryUpdate, AppState (+ SQLite offline-dev)        │
 ├─────────────────────────────────────────────────────────────┤
 │                    INFRASTRUCTURE LAYER                       │
 │   Kite Connect  │  Claude API  │  Telegram  │  News Feeds    │
@@ -119,8 +123,8 @@ Insight-Alpha is an AI-powered equity trading agent for Indian markets (NSE) via
 │                                 │                                     │
 │                      ┌──────────▼──────────────────────┐             │
 │                      │ Persistence Layer                │             │
-│                      │ Database (SQLAlchemy + SQLite)    │             │
-│                      │ 7 tables, WAL mode               │             │
+│                      │ Neon Postgres (paper + live DBs) │             │
+│                      │ 9 tables, Alembic migrations     │             │
 │                      └─────────────────────────────────┘             │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -155,16 +159,19 @@ Exit Notification → Feedback Tracker → Daily Metrics
 
 ### 4.2 Market-Hours Schedule
 
-| Time (IST) | Event |
-|------------|-------|
-| 09:10 | `load_instruments()` — Fetch Kite instrument tokens |
-| 09:15 | Market opens |
-| 09:20 | First scan cycle |
-| Every 15m | `run_cycle()` — Full pipeline execution |
-| Continuous | Telegram callback polling — real-time button responses |
-| 15:15 | Auto-exit MIS positions approaching EOD |
-| 15:30 | Market closes |
-| 15:35 | `send_daily_summary()` — PnL, win rate, daily metrics |
+| Time (IST) | Component | Event |
+|------------|-----------|-------|
+| 08:55 | Cloud Routine | `morning-login-prompt` — post Telegram link for manual Kite OAuth |
+| 09:00 | Cloud Routine | `pre-market-check` — macro snapshot, watchlist health |
+| 09:10 | signal-scan Routine | `load_instruments()` + GTT reconciliation |
+| 09:15 | — | Market opens |
+| Every 60s | Fly.io worker | `tick_auto_sell()` — software exit conditions |
+| Every hour | signal-scan Routine | `run_cycle()` — full pipeline execution |
+| Continuous | telegram-poll Routine | Telegram callback polling — button responses + memory approval |
+| 15:15 | signal-scan Routine | Auto-exit MIS positions approaching EOD |
+| 15:30 | — | Market closes |
+| 15:35 | signal-scan Routine | `send_daily_summary()` — PnL, win rate, daily metrics |
+| 15:40 Fri | Cloud Routine | `weekly-review` — WeeklyReviewAgent draft → Telegram gate |
 
 ### 4.3 Scan Cycle Detail
 
@@ -238,7 +245,7 @@ Position                AutoSellTrigger         ExitSignal
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    DATABASE TABLES (7)                        │
+│                    DATABASE TABLES (9)                        │
 ├─────────────────────────────────────────────────────────────┤
 │                                                               │
 │  CORE TABLES (trade lifecycle)                               │
@@ -284,7 +291,16 @@ Position                AutoSellTrigger         ExitSignal
 │  │ telegram_msg_id│  │ updated_at            │              │
 │  │ status         │  └───────────────────────┘              │
 │  │ action         │                                          │
-│  └────────────────┘                                          │
+│  └────────────────┘  ┌───────────────────────┐              │
+│                      │ pending_memory_updates │              │
+│                      │                        │              │
+│                      │ id (PK)               │              │
+│                      │ trade_id / week_str   │              │
+│                      │ diff_json (text)      │              │
+│                      │ status (pending/…)    │              │
+│                      │ telegram_msg_id       │              │
+│                      │ created_at            │              │
+│                      └───────────────────────┘              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -464,7 +480,7 @@ Auto-sell triggers are persisted to `auto_sell_trigger_state` table. On restart:
 |--------|-----------|-----------|
 | Market Data | Real (Kite API) | Real (Kite API) |
 | Order Execution | Simulated (LTP + 5 bps slippage) | Real (Kite `place_order()`) |
-| Database | `insight_alpha_paper.db` | `insight_alpha_live.db` |
+| Database | Neon Postgres (`DATABASE_URL_PAPER`) | Neon Postgres (`DATABASE_URL_LIVE`) |
 | Config | `config/paper.yaml` | `config/live.yaml` |
 | Safety | No real money risk | Requires `CONFIRM_LIVE_TRADING=true` |
 | Code Path | Same pipeline | Same pipeline, different broker impl |
@@ -535,33 +551,43 @@ Key configuration areas:
 | AI/LLM | `anthropic` (Claude API, tool_use) |
 | Data Processing | `pandas`, `numpy` |
 | Config Validation | `pydantic` |
-| Database ORM | `SQLAlchemy` |
-| Database | SQLite (paper) / PostgreSQL (live) |
+| Database ORM | `SQLAlchemy` + Alembic migrations |
+| Database | Neon Postgres (paper + live); SQLite offline-dev fallback |
 | Web Framework | `FastAPI` + `Jinja2` |
 | ASGI Server | `uvicorn` |
-| Scheduler | `APScheduler` |
+| Scheduler | `APScheduler` (local); Cloud Routines (production) |
 | Logging | `structlog` (JSON) |
 | Notifications | Telegram Bot API, Twilio (WhatsApp) |
+| Edge proxy | Cloudflare Worker (Kite OAuth callback) |
+| Always-on worker | Fly.io Machines (`shared-cpu-1x`, 256MB) |
+| Memory audit | GitHub REST API (fine-grained PAT) |
 
 ---
 
 ## 15. Deployment
 
-### Development / Paper Trading
+### Local Development / Paper Trading
 
 ```bash
 pip install -e .
-cp .env.example .env
-# Configure: KITE_API_KEY, ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN
-python start.py
+cp .env.example .env   # fill in KITE_API_KEY, ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN, DATABASE_URL_PAPER
+EXECUTION_MODE=paper alembic upgrade head
+python start.py        # web dashboard + engine
 ```
 
-### Production / Live Trading
+### Cloud Topology (Production)
 
-- Set `EXECUTION_MODE=live` and `CONFIRM_LIVE_TRADING=true`
-- Use PostgreSQL instead of SQLite
-- Run behind a process manager (systemd, supervisor)
-- Ensure Kite access token refresh (daily OAuth)
+| Component | Platform | Purpose |
+|-----------|----------|---------|
+| Signal scan, Telegram poll, Heartbeat, Reviews | Claude Code Cloud Routines | Scheduled work (≥1h cadence) |
+| Auto-sell tick | Fly.io (`shared-cpu-1x`, 256MB, ~$2/mo) | 60s software exit monitoring |
+| Kite OAuth callback | Cloudflare Worker (free tier) | Receives redirect → writes token to Neon |
+| Persistence | Neon Postgres (2 DBs) | `paper` + `live` state, cloud-native |
+| Memory audit trail | GitHub PRs (fine-grained PAT) | One PR per approved memory update |
+
+**Daily login flow:** `morning-login-prompt` Routine posts Telegram link at 08:55 IST → user taps on mobile → Zerodha redirects to Cloudflare Worker → Worker writes `access_token` to both Neon DBs → all Routines and Fly worker read it via `get_active_session()`.
+
+See `cloudflare-worker/README.md`, `routines/README.md`, and `workers/README.md` for full deploy steps.
 
 ---
 
@@ -574,7 +600,12 @@ python start.py
 | 4-agent debate pattern | Adversarial checking reduces false positives |
 | Approval-based execution | User stays in control, no surprise trades |
 | State persistence to DB | Survives restarts — no lost positions or triggers |
-| SQLite WAL mode | Concurrent read/write from engine + web threads |
+| Neon Postgres (two DBs) | Separate paper/live state; cloud-native, zero ops |
+| Alembic migrations | Schema versioned — safe to evolve models.py |
+| Cloud Routines (≥1h) | All scheduled work; Fly.io only for sub-minute auto-sell |
+| Fly.io always-on worker | 60s auto-sell tick — Routines can't go below 1h |
+| Cloudflare Worker | Kite OAuth without exposing app publicly |
+| GitHub PR per memory update | Memory changes need human merge — no accidental overwrite |
 | Tool use for structured output | Eliminates JSON parse failures |
 | HMM regime detection | Filters strategy-regime mismatches |
 | Sentiment decay (15%/30min) | Prevents stale news from driving entries |
