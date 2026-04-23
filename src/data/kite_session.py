@@ -6,7 +6,6 @@ read the token from here at startup; they exit 0 with an alert if stale.
 """
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
@@ -17,7 +16,6 @@ from src.storage.models import AppState
 
 ACCESS_TOKEN_KEY = "kite_access_token"
 EXPIRES_AT_KEY = "kite_session_expires_at"
-LOGIN_MESSAGE_ID_KEY = "kite_login_message_id"
 
 
 @dataclass
@@ -75,16 +73,3 @@ def clear_session(session: Session) -> None:
     session.commit()
 
 
-def set_login_message_id(session: Session, message_id: int) -> None:
-    _set(session, LOGIN_MESSAGE_ID_KEY, json.dumps({"id": message_id, "ts": datetime.now(timezone.utc).isoformat()}))
-    session.commit()
-
-
-def get_login_message_id(session: Session) -> Optional[int]:
-    raw = _get(session, LOGIN_MESSAGE_ID_KEY)
-    if not raw:
-        return None
-    try:
-        return int(json.loads(raw)["id"])
-    except (ValueError, KeyError, json.JSONDecodeError):
-        return None

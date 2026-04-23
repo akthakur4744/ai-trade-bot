@@ -1,22 +1,57 @@
 """Cloud Routine entrypoint: morning Kite login prompt.
 
 Schedule: 08:55 IST every market day.
-Idempotent — if a live session is already in Neon, exits 0 silently.
+Idempotent — if a live session is already active (checked via Cloudflare Worker
+proxy over HTTPS), exits 0 silently.
+
+The Cloud Routine sandbox has HTTPS-only egress; Neon is unreachable on port
+5432. Session state is read via GET /heartbeat/state on the Cloudflare Worker
+(same env vars as heartbeat: HEARTBEAT_STATE_URL, HEARTBEAT_TOKEN).
 """
 from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime, timezone
 
+import httpx
 import structlog
 
-from src.config import load_config
-from src.data.kite_session import get_active_session, set_login_message_id
 from src.notifications.telegram import TelegramNotifier
-from src.storage.database import Database
 from src.utils.market_calendar import is_trading_day
 
 logger = structlog.get_logger(__name__)
+
+_HTTP_TIMEOUT_SEC = 10.0
+
+
+def _is_session_active(url: str, token: str, mode: str) -> bool:
+    """Return True if a valid Kite session exists, via CF Worker proxy."""
+    try:
+        resp = httpx.get(
+            url,
+            params={"mode": mode},
+            headers={"X-Heartbeat-Token": token},
+            timeout=_HTTP_TIMEOUT_SEC,
+        )
+        resp.raise_for_status()
+        state = resp.json()
+    except Exception as e:
+        logger.warning("session_check_failed", error=str(e))
+        return False
+
+    if not state.get("kite_access_token_present"):
+        return False
+    exp_raw = state.get("kite_session_expires_at")
+    if not exp_raw:
+        return False
+    try:
+        exp = datetime.fromisoformat(exp_raw)
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    return datetime.now(timezone.utc) < exp
 
 
 def main() -> int:
@@ -25,18 +60,16 @@ def main() -> int:
         logger.info("non_market_day_skip")
         return 0
 
-    cfg = load_config()
-    db = Database(cfg.database.url)
+    url = os.environ.get("HEARTBEAT_STATE_URL")
+    token = os.environ.get("HEARTBEAT_TOKEN")
+    mode = os.environ.get("EXECUTION_MODE", "paper")
+    if not url or not token:
+        logger.error("heartbeat_misconfigured", have_url=bool(url), have_token=bool(token))
+        return 1
 
-    # Check if session is already active — fail open if DB is unreachable
-    # (CCR sandbox may block port 5432; better to send an extra prompt than miss one).
-    try:
-        with db.get_session() as s:
-            if get_active_session(s):
-                logger.info("kite_session_already_active_skip")
-                return 0
-    except Exception as exc:
-        logger.warning("db_unreachable_sending_prompt_anyway", error=str(exc))
+    if _is_session_active(url, token, mode):
+        logger.info("kite_session_already_active_skip")
+        return 0
 
     api_key = os.environ.get("KITE_API_KEY", "")
     if not api_key:
@@ -56,13 +89,6 @@ def main() -> int:
     )
     if msg_id is None:
         return 1
-
-    # Best-effort: record the message ID so the Cloudflare Worker can edit it on success.
-    try:
-        with db.get_session() as s:
-            set_login_message_id(s, msg_id)
-    except Exception as exc:
-        logger.warning("db_unreachable_skipping_msg_id_write", error=str(exc))
 
     logger.info("login_prompt_sent", message_id=msg_id)
     return 0

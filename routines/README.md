@@ -41,17 +41,17 @@ Set these in the Claude Code dashboard under each Routine's **Secrets** tab:
 
 | Secret | Required by | Purpose |
 |--------|-------------|---------|
-| `DATABASE_URL_PAPER` | all | Neon paper DB |
-| `DATABASE_URL_LIVE` | all | Neon live DB |
+| `DATABASE_URL_PAPER` | all except morning-login-prompt | Neon paper DB |
+| `DATABASE_URL_LIVE` | all except morning-login-prompt | Neon live DB |
 | `EXECUTION_MODE` | all | `paper` or `live` |
-| `KITE_API_KEY` | signal-scan, telegram-poll | Zerodha API |
+| `KITE_API_KEY` | morning-login-prompt, signal-scan, telegram-poll | Zerodha API |
 | `KITE_API_SECRET` | signal-scan, telegram-poll | Zerodha API |
 | `TELEGRAM_BOT_TOKEN` | all | Bot notifications |
 | `TELEGRAM_CHAT_ID` | all | Your chat ID |
 | `ANTHROPIC_API_KEY` | signal-scan, telegram-poll | Claude API |
 | `GITHUB_TOKEN` | **telegram-poll only** | Open memory PRs (Contents + Pull requests write) |
-| `HEARTBEAT_STATE_URL` | heartbeat | Cloudflare Worker proxy URL |
-| `HEARTBEAT_TOKEN` | heartbeat | Auth token for the proxy |
+| `HEARTBEAT_STATE_URL` | heartbeat, morning-login-prompt | Cloudflare Worker proxy URL |
+| `HEARTBEAT_TOKEN` | heartbeat, morning-login-prompt | Auth token for the proxy |
 
 `GITHUB_TOKEN` is a **fine-grained PAT** scoped to this repo with:
 - Repository permissions → **Contents: Read & write**
