@@ -98,7 +98,10 @@ def main() -> int:
 
     tg = TelegramNotifier()
     if tg.is_configured:
-        tg.send_alert("Heartbeat:\n- " + "\n- ".join(alerts))
+        try:
+            tg.send_alert("Heartbeat:\n- " + "\n- ".join(alerts))
+        except Exception as exc:
+            logger.warning("heartbeat_telegram_send_failed", error=str(exc))
     logger.warning("heartbeat_alerts", alerts=alerts)
     return 0
 
