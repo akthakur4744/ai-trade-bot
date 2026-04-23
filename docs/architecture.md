@@ -115,18 +115,20 @@ Insight-Alpha is a multi-agent AI trading system for Indian equity markets. It c
 │                                                                   │
 │  When user selects "Auto-Sell":                                   │
 │    1. GTT OCO placed on exchange (stop loss + target)             │
-│    2. App monitors software exit conditions each cycle            │
+│    2. Fly.io worker calls tick_auto_sell() every 60s              │
 │                                                                   │
-│  Exchange (GTT):                                                  │
-│    • Hard stop loss — crash-safe                                  │
-│    • Target price — crash-safe                                    │
-│  App (software):                                                  │
+│  Exchange (GTT) — crash-safe, survives process death:             │
+│    • Hard stop loss                                               │
+│    • Target price                                                 │
+│  Software (Fly.io always-on worker, 60s cadence):                │
 │    • Trailing stop (updates GTT stop as it improves)              │
 │    • Time-based exit (holding window expired)                     │
 │    • Structure break (price reversal + volume spike)              │
 │    • Confidence decay (AI confidence below floor)                 │
 │                                                                   │
 │  First trigger to fire → auto-exit. GTT cancelled on app exit.    │
+│  Worker reloads trigger dict from DB each tick (cross-process     │
+│  sync with telegram-poll Routine that writes new triggers).       │
 │  User notified with reason, PnL, via (exchange/software).         │
 └────────────────────────┬────────────────────────────────────────┘
                          │
@@ -154,10 +156,13 @@ Insight-Alpha is a multi-agent AI trading system for Indian equity markets. It c
 | `src/execution/` | Broker ABC, PaperBroker, LiveBroker, OrderManager, AutoExitMonitor, AutoSellManager |
 | `src/notifications/` | Telegram (interactive inline keyboards) and WhatsApp (Twilio) notifiers |
 | `src/web/` | FastAPI dashboard, Kite OAuth flow, engine control, approval workflow APIs |
-| `src/storage/` | SQLAlchemy ORM (7 tables), persistence layer, SQLite/PostgreSQL |
-| `src/feedback/` | Performance tracker, daily reporting |
+| `src/storage/` | SQLAlchemy ORM (9 tables + Alembic migrations), Neon Postgres (paper/live DBs); SQLite retained as offline-dev fallback |
+| `src/feedback/` | PostmortemAgent, PostmortemPipeline, MemoryWriter (Telegram-gated), MemoryContext, WeeklyReviewAgent, FeedbackTracker, Reporter |
 | `config/` | YAML configs: default, paper, live, strategies/, watchlist.yaml |
-| `scripts/` | CLI tools: kite_auth.py (manual daily OAuth), kite_auto_login.py (automated via Playwright + External TOTP), install_cron.sh (launchd scheduler), backtest_cli.py |
+| `scripts/` | CLI tools: kite_auth.py (manual daily OAuth), kite_auto_login.py (local debug only — NOT automated login), backtest_cli.py |
+| `workers/` | Fly.io always-on worker: `auto_sell_tick.py` (60s loop, software exit conditions) |
+| `routines/` | Cloud Routine definitions: morning-login-prompt, signal-scan, telegram-poll, heartbeat, etc. |
+| `cloudflare-worker/` | Kite OAuth callback handler — writes `access_token` to Neon `app_state` |
 | `tests/` | unit/, integration/, backtest/ |
 
 ---
@@ -207,26 +212,30 @@ SCORE_SIGNAL_TOOL = {
 ## Data Flow — Timing
 
 ```
-09:10 IST  — load_instruments(): Fetch Kite instrument tokens for watchlist
+08:55 IST  — morning-login-prompt Routine: post Telegram link for manual Kite OAuth
+09:00 IST  — pre-market-check Routine: macro snapshot, watchlist health
+09:10 IST  — load_instruments(): Fetch Kite instrument tokens for watchlist (inside signal-scan)
              — reconcile_gtt_on_startup(): Check GTT status on exchange, re-place if needed
 09:15 IST  — Market opens
-09:20 IST  — First scan cycle
-Every 15m  — run_cycle():
+Every 60s  — Fly.io auto-sell-tick worker: tick_auto_sell()
+               → re-auth Kite (reads token from Neon app_state)
+               → reload trigger dict from DB (syncs with telegram-poll engine)
+               → check software exit conditions (trailing, time, structure, confidence)
+               → update GTT stop leg if trailing stop improved (rate-limited)
+               → write last_autosell_tick_ts heartbeat to app_state
+Every hour — signal-scan Cloud Routine: run_cycle()
                → expire pending signals older than 15 min
-               → monitor auto-sell positions:
-                   1. Check GTT status on exchange (triggered? cancelled?)
-                   2. Check software exit conditions (trailing, time, structure, confidence)
-                   3. Update GTT stop leg if trailing stop improved (rate-limited)
                → fetch macro + news
                → scan strategies across watchlist
                → AI pipeline (Researcher → Sentinel → Orchestrator → Stitch)
                → filter + rank → risk check
                → queue signals for user approval (Telegram + Dashboard)
                → check exits on non-auto-sell positions
-Continuous  — Telegram callback polling: receives button presses in real-time
+Continuous — telegram-poll Cloud Routine: receives button presses
                → BUY & Auto-Sell: execute order + create exit triggers
                → Manual BUY: execute order, user manages exit
                → Ignore: discard signal
+               → Memory approval: apply diffs → open GitHub PR
 15:15 IST  — Auto-exit: close MIS positions approaching EOD
 15:35 IST  — send_daily_summary(): PnL, win rate, regime, notifications
 ```
@@ -403,7 +412,7 @@ FastAPI + Jinja2 dashboard at `http://127.0.0.1:8000`:
 
 All critical runtime state is persisted to the database and restored on application restart.
 
-### Database Tables (7)
+### Database Tables (9)
 
 **Core tables** (trade lifecycle):
 - `signals` — Generated trading signals with confidence breakdowns
@@ -414,7 +423,10 @@ All critical runtime state is persisted to the database and restored on applicat
 - `position_state` — Open positions (symbol, direction, quantity, prices, order_id)
 - `auto_sell_trigger_state` — Active AI exit triggers (stop/target/trailing, price tracking, `created_at`, GTT trigger ID/status/stop price)
 - `pending_signal_state` — Signals awaiting user approval (ScoredSignal serialized as JSON)
-- `app_state` — Key-value store for kill switch state and portfolio daily counters
+- `app_state` — Key-value store for kill switch state, portfolio counters, Kite token, heartbeat timestamps
+
+**Memory approval table:**
+- `pending_memory_updates` — Approved memory diffs queued for Telegram gate → GitHub PR flow
 
 ### What Survives a Restart
 
@@ -430,9 +442,9 @@ All critical runtime state is persisted to the database and restored on applicat
 | Trade history (feedback) | Reconstructed from `trades` table on startup |
 | Dashboard state | Repopulated from `signals` and `trades` tables on engine start |
 
-SQLite WAL mode is enabled for concurrent read/write safety between the engine thread and web server thread.
+Two separate Neon Postgres databases are used — one per execution mode (`DATABASE_URL_PAPER`, `DATABASE_URL_LIVE`). SQLite is retained as an offline-dev fallback. Schema managed by Alembic; run `alembic upgrade head` after any `models.py` change.
 
-Tables are auto-created by `Base.metadata.create_all()` — no migration tool required.
+For concurrent read/write safety in local dev (SQLite), WAL mode is enabled.
 
 For the full database schema diagram, see [hld.md](hld.md).
 
@@ -456,6 +468,11 @@ For the full database schema diagram, see [hld.md](hld.md).
 | GTT startup reconciliation | Re-places protection for positions left unprotected after crash/restart |
 | Telegram inline keyboards | Interactive mobile-first UX, free, instant |
 | State persistence to DB | Survives restarts — no lost positions, triggers, or pending signals |
-| SQLite WAL mode | Concurrent read/write from engine + web threads |
+| Neon Postgres (two DBs) | Separate paper/live state; cloud-native, no ops overhead |
+| Alembic migrations | Schema versioned — safe to evolve models.py without data loss |
+| Cloud Routines (1h+ cadence) | Scheduled work: signal scan, telegram poll, heartbeat, reviews |
+| Fly.io always-on worker | Sub-minute auto-sell monitoring (60s); Routines can't go below 1h |
+| Cloudflare Worker | Receives Kite OAuth redirect; writes token to Neon without exposing the app |
+| GitHub PR per memory update | Memory changes require manual merge — no auto-commit to main |
 | Pydantic config validation | Catches misconfiguration at startup, not at runtime |
 | structlog JSON logging | Machine-parseable logs for analysis and alerting |
