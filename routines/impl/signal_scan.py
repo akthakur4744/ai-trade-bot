@@ -10,6 +10,7 @@ import sys
 from datetime import datetime, timezone
 
 import structlog
+from sqlalchemy.exc import OperationalError
 
 from src.config import load_config
 from src.data.kite_session import get_active_session
@@ -41,11 +42,15 @@ def main() -> int:
     cfg = load_config()
     db = Database(cfg.database.url)
 
-    with db.get_session() as s:
-        if not get_active_session(s):
-            # heartbeat routine owns user-facing alert; stay silent here
-            logger.warning("kite_session_stale_skip")
-            return 0
+    try:
+        with db.get_session() as s:
+            if not get_active_session(s):
+                # heartbeat routine owns user-facing alert; stay silent here
+                logger.warning("kite_session_stale_skip")
+                return 0
+    except OperationalError as exc:
+        logger.warning("db_unreachable_skip", error=str(exc).split("\n")[0])
+        return 0
 
     # Import lazily to keep cold-start light on market-closed / no-session exits.
     from src.main import TradingEngine
