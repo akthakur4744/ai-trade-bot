@@ -31,14 +31,18 @@ HEARTBEAT_KEY = "last_telegram_poll_ts"
 
 
 def _get_offset(db) -> int:
-    with db.get_session() as s:
-        row = s.query(AppState).filter_by(key=OFFSET_KEY).first()
-        if not row:
-            return 0
-        try:
-            return int(row.value)
-        except ValueError:
-            return 0
+    try:
+        with db.get_session() as s:
+            row = s.query(AppState).filter_by(key=OFFSET_KEY).first()
+            if not row:
+                return 0
+            try:
+                return int(row.value)
+            except ValueError:
+                return 0
+    except Exception as exc:
+        logger.warning("db_offset_read_failed", error=str(exc))
+        return 0
 
 
 def _set_offset(db, offset: int) -> None:
@@ -126,19 +130,14 @@ class _CallbackRouter:
 
 def main() -> int:
     cfg = load_config()
-    db = Database(cfg.database.url)
     tg = TelegramNotifier()
     if not tg.is_configured:
         logger.error("telegram_not_configured")
         return 2
 
-    try:
-        offset = _get_offset(db)
-    except OperationalError as exc:
-        logger.warning("telegram_poll_db_unavailable", error=str(exc).split("\n")[0])
-        return 0
-
+    db = Database(cfg.database.url)
     router = _CallbackRouter(cfg, db, tg)
+    offset = _get_offset(db)
     try:
         next_offset = tg.process_updates_once(offset, handler=router.handle)
     finally:
