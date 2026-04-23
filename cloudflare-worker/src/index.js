@@ -1,15 +1,13 @@
 // Insight-Alpha Cloudflare Worker.
 //
 // GET /kite/callback?request_token=...&status=success
-//   -> exchange request_token for access_token, write to Neon, confirm via Telegram.
+//   -> exchange request_token for access_token, write to Supabase, confirm via Telegram.
 //
 // GET /heartbeat/state?mode=paper|live
-//   -> read watchdog keys from Neon app_state, return JSON.
+//   -> read watchdog keys from Supabase app_state, return JSON.
 //      Header X-Heartbeat-Token must equal env.HEARTBEAT_TOKEN.
-//      Exists because the cloud Routine sandbox cannot reach Neon on 5432
-//      (HTTPS-only egress); this proxies the read over 443.
-
-import { neon } from "@neondatabase/serverless";
+//      Exists because the cloud Routine sandbox cannot reach Supabase on port 6543
+//      (HTTPS-only egress); this proxies the read over 443 via Supabase REST API.
 
 const OK_HTML = `<!doctype html><html><body style="font-family:system-ui;padding:2rem">
 <h1>✅ Logged in</h1><p>You can close this tab. Insight-Alpha will pick up the session.</p>
@@ -51,19 +49,23 @@ function expiresAtIso() {
   return expiry.toISOString();
 }
 
-async function writeToken(dbUrl, accessToken, expiresAtIsoStr) {
-  const sql = neon(dbUrl);
-  // app_state has a UNIQUE index on key — ON CONFLICT upserts cleanly.
-  await sql`
-    INSERT INTO app_state (key, value, updated_at)
-    VALUES ('kite_access_token', ${accessToken}, now())
-    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
-  `;
-  await sql`
-    INSERT INTO app_state (key, value, updated_at)
-    VALUES ('kite_session_expires_at', ${expiresAtIsoStr}, now())
-    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
-  `;
+async function supabaseUpsert(supabaseUrl, serviceKey, key, value) {
+  const res = await fetch(`${supabaseUrl}/rest/v1/app_state`, {
+    method: "POST",
+    headers: {
+      "apikey": serviceKey,
+      "Authorization": `Bearer ${serviceKey}`,
+      "Content-Type": "application/json",
+      "Prefer": "resolution=merge-duplicates",
+    },
+    body: JSON.stringify({ key, value, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error(`supabase upsert failed: ${res.status} ${await res.text()}`);
+}
+
+async function writeToken(supabaseUrl, serviceKey, accessToken, expiresAtIsoStr) {
+  await supabaseUpsert(supabaseUrl, serviceKey, "kite_access_token", accessToken);
+  await supabaseUpsert(supabaseUrl, serviceKey, "kite_session_expires_at", expiresAtIsoStr);
 }
 
 async function sendTelegram(env, text) {
@@ -91,11 +93,19 @@ const HEARTBEAT_KEYS = [
   "kite_session_expires_at",
 ];
 
-async function readHeartbeatState(dbUrl) {
-  const sql = neon(dbUrl);
-  const rows = await sql`
-    SELECT key, value FROM app_state WHERE key = ANY(${HEARTBEAT_KEYS})
-  `;
+async function readHeartbeatState(supabaseUrl, serviceKey) {
+  const keyList = HEARTBEAT_KEYS.join(",");
+  const res = await fetch(
+    `${supabaseUrl}/rest/v1/app_state?key=in.(${keyList})&select=key,value`,
+    {
+      headers: {
+        "apikey": serviceKey,
+        "Authorization": `Bearer ${serviceKey}`,
+      },
+    }
+  );
+  if (!res.ok) throw new Error(`supabase read failed: ${res.status} ${await res.text()}`);
+  const rows = await res.json();
   const out = Object.fromEntries(HEARTBEAT_KEYS.map((k) => [k, null]));
   for (const r of rows) out[r.key] = r.value;
   // Don't ship the raw token back — the caller only needs to know it's set.
@@ -113,8 +123,8 @@ async function handleKiteCallback(url, env) {
   try {
     const accessToken = await generateSession(env, requestToken);
     const exp = expiresAtIso();
-    await writeToken(env.DATABASE_URL_PAPER, accessToken, exp);
-    await writeToken(env.DATABASE_URL_LIVE, accessToken, exp);
+    await writeToken(env.SUPABASE_URL_PAPER, env.SUPABASE_KEY_PAPER, accessToken, exp);
+    await writeToken(env.SUPABASE_URL_LIVE, env.SUPABASE_KEY_LIVE, accessToken, exp);
     await sendTelegram(env, `✅ Kite session active until 15:30 IST.`);
     return new Response(OK_HTML, { headers: { "Content-Type": "text/html" } });
   } catch (err) {
@@ -130,10 +140,15 @@ async function handleHeartbeatState(request, url, env) {
     return new Response("Forbidden", { status: 403 });
   }
   const mode = url.searchParams.get("mode");
-  const dbUrl = mode === "live" ? env.DATABASE_URL_LIVE : mode === "paper" ? env.DATABASE_URL_PAPER : null;
-  if (!dbUrl) return new Response("mode must be paper|live", { status: 400 });
+  const [supabaseUrl, serviceKey] =
+    mode === "live"
+      ? [env.SUPABASE_URL_LIVE, env.SUPABASE_KEY_LIVE]
+      : mode === "paper"
+      ? [env.SUPABASE_URL_PAPER, env.SUPABASE_KEY_PAPER]
+      : [null, null];
+  if (!supabaseUrl) return new Response("mode must be paper|live", { status: 400 });
   try {
-    const state = await readHeartbeatState(dbUrl);
+    const state = await readHeartbeatState(supabaseUrl, serviceKey);
     return new Response(JSON.stringify(state), {
       headers: { "Content-Type": "application/json" },
     });
