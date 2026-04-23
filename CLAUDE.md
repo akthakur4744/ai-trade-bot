@@ -27,7 +27,7 @@ Data Pipeline -> Indicators -> Strategies -> AI Agents -> Scoring -> Filtering -
 - Python 3.11+, `kiteconnect` (Zerodha), `anthropic` (Claude API)
 - `pandas`/`numpy` for data, `pydantic` for config validation, `SQLAlchemy` for DB
 - `FastAPI` + `Jinja2` web dashboard, `uvicorn` ASGI
-- Neon Postgres — two separate DBs (`paper`, `live`); URL chosen per `EXECUTION_MODE`. Schema via Alembic. `APScheduler` for market-hours loop. Local SQLite retained as offline-dev fallback.
+- Supabase Postgres — two separate projects (`paper`, `live`); URL chosen per `EXECUTION_MODE`. Schema via Alembic. `APScheduler` for market-hours loop. Local SQLite retained as offline-dev fallback.
 - `structlog` structured JSON logging
 - Telegram Bot API: interactive push notifications + inline keyboards
 
@@ -114,11 +114,11 @@ python start.py
 # Run the agent standalone (paper mode, requires pre-auth)
 python -m src.main
 
-# Apply DB schema (run once per Neon DB, and after any models.py change)
+# Apply DB schema (run once per Supabase DB, and after any models.py change)
 EXECUTION_MODE=paper alembic upgrade head
 EXECUTION_MODE=live  alembic upgrade head
 
-# One-time data copy: local SQLite -> Neon (paper)
+# One-time data copy: local SQLite -> Supabase (paper)
 python scripts/migrate_sqlite_to_neon.py \
   --source sqlite:///insight_alpha_paper.db --target "$DATABASE_URL_PAPER"
 
@@ -134,7 +134,7 @@ python scripts/backtest_cli.py --strategy mean_reversion --period 2y
 # Kite login (production)
 # Fully manual on mobile — the `morning-login-prompt` Cloud Routine posts a
 # Telegram link at 08:55 IST; user taps, logs in, Cloudflare Worker writes
-# the access_token to Neon `app_state`. No TOTP scripting. See
+# the access_token to Supabase `app_state`. No TOTP scripting. See
 # `cloudflare-worker/README.md` and `routines/morning-login-prompt.md`.
 
 # Kite login (manual debug)
@@ -208,8 +208,8 @@ No memory file is auto-merged — user must merge the PR on GitHub.
   Deploy: see `workers/README.md`.
 - **Cloudflare Worker** (free tier): `/kite/callback` handler that receives
   Zerodha's redirect, exchanges `request_token` for `access_token`, and
-  writes it to both Neon DBs. See `cloudflare-worker/`.
-- **Neon Postgres**: two separate DBs (`paper`, `live`). Schema via Alembic.
+  writes it to both Supabase DBs. See `cloudflare-worker/`.
+- **Supabase Postgres**: two separate projects (`paper`, `live`). Schema via Alembic.
 - **Market calendar**: `src/utils/market_calendar.py` — every routine
   fail-fasts if `is_market_open()` is False.
 
@@ -219,7 +219,7 @@ No memory file is auto-merged — user must merge the PR on GitHub.
 - Kite tokens expire daily at 15:30 IST (SEBI mandate). Daily login is
   **manual on mobile**: user taps the `morning-login-prompt` Telegram link,
   Zerodha redirects to the Cloudflare Worker, Worker writes `access_token`
-  to Neon `app_state`. All routines read the token via
+  to Supabase `app_state`. All routines read the token via
   `src/data/kite_session.py::get_active_session()`.
 - Kite rate limits: 3 req/s (historical), 10 req/s (other)
 - Paper broker never calls Kite order APIs — LTP only for simulated fills

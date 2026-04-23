@@ -28,8 +28,8 @@ fly launch --no-deploy --name insight-alpha-auto-sell --region bom \
 
 # 3. Set secrets (paper mode only to start; mirror for live later)
 fly secrets set \
-  DATABASE_URL_PAPER="postgres://...neon.tech/paper?sslmode=require" \
-  DATABASE_URL_LIVE="postgres://...neon.tech/live?sslmode=require" \
+  DATABASE_URL_PAPER="postgresql://postgres.<ref>:<pw>@aws-0-ap-south-1.pooler.supabase.com:6543/postgres" \
+  DATABASE_URL_LIVE="postgresql://postgres.<ref>:<pw>@aws-0-ap-south-1.pooler.supabase.com:6543/postgres" \
   KITE_API_KEY="..." \
   KITE_API_SECRET="..." \
   TELEGRAM_BOT_TOKEN="..." \

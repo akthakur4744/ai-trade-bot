@@ -32,7 +32,7 @@ class Database:
         if self._is_sqlite:
             self.engine = create_engine(url, echo=False)
         else:
-            # Postgres (Neon) — pool with pre-ping so idle connections recycle.
+            # Postgres — pool with pre-ping so idle connections recycle.
             # connect_timeout: max seconds to establish TCP connection (psycopg2 arg).
             # pool_timeout: max seconds to wait for a connection from the pool.
             self.engine = create_engine(

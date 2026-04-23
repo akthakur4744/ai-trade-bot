@@ -1,7 +1,7 @@
 # Kite Token Health
 
 Diagnose Kite session failures. Kite tokens expire daily at 15:30 IST (SEBI mandate).
-Login is **manual on mobile** — no TOTP scripting. Token lives in Neon
+Login is **manual on mobile** — no TOTP scripting. Token lives in Supabase
 `app_state` (keys: `kite_access_token`, `kite_session_expires_at`).
 
 ## Steps
