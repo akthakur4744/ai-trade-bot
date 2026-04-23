@@ -155,10 +155,11 @@ class PostmortemPipeline:
             return
 
         if ok:
+            # `result` is a PR URL now (see MemoryWriter — memory changes are
+            # opened as PRs against main rather than committed directly).
             self._db.update_pending_memory_status(pending_id, "approved", commit_sha=result)
             if msg_id and self._telegram.is_configured:
-                short_sha = result[:8] if result else ""
-                self._telegram.update_memory_message(msg_id, f"Committed {short_sha}")
+                self._telegram.update_memory_message(msg_id, f"PR opened: {result}")
         else:
             self._db.update_pending_memory_status(pending_id, "failed")
             if msg_id and self._telegram.is_configured:

@@ -1,9 +1,9 @@
 """Unit tests for MemoryWriter — append idempotency and insertion under headers.
 
-Git calls are disabled by passing git_push=False and pointing the writer at a
-temp directory with no git repo; _git_commit returns a failure that the
-public API surfaces as (False, err). The file mutations we care about happen
-BEFORE the git step, so we assert file state directly.
+Git + GitHub operations are disabled by passing dry_run=True. The writer
+applies file mutations in-place on the temp working tree and returns
+(False, "dry_run") so we can assert file state directly without spinning
+up a real git repo or mocking the GitHub API.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def memory_repo(tmp_path: Path) -> Path:
 
 
 def _writer(repo: Path) -> MemoryWriter:
-    return MemoryWriter(repo_root=repo, git_push=False)
+    return MemoryWriter(repo_root=repo, dry_run=True)
 
 
 def test_append_mistakes_is_idempotent(memory_repo: Path):
