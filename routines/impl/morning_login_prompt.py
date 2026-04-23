@@ -14,14 +14,15 @@ from src.config import load_config
 from src.data.kite_session import get_active_session, set_login_message_id
 from src.notifications.telegram import TelegramNotifier
 from src.storage.database import Database
-from src.utils.market_calendar import is_market_open
+from src.utils.market_calendar import is_trading_day
 
 logger = structlog.get_logger(__name__)
 
 
 def main() -> int:
-    if not is_market_open():
-        logger.info("market_closed_skip")
+    from datetime import date
+    if not is_trading_day(date.today()):
+        logger.info("non_market_day_skip")
         return 0
 
     cfg = load_config()
