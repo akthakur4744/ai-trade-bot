@@ -6,8 +6,10 @@ compatibility_flags = ["nodejs_compat"]
 # Secrets (set via `wrangler secret put`):
 #   KITE_API_KEY
 #   KITE_API_SECRET
-#   DATABASE_URL_PAPER
-#   DATABASE_URL_LIVE
+#   SUPABASE_URL_PAPER   # https://mgarzpkoxgicdacujhny.supabase.co
+#   SUPABASE_URL_LIVE    # https://xagungelhyaqwokamayo.supabase.co
+#   SUPABASE_KEY_PAPER   # service_role key for paper Supabase project
+#   SUPABASE_KEY_LIVE    # service_role key for live Supabase project
 #   TELEGRAM_BOT_TOKEN
 #   TELEGRAM_CHAT_ID
 #   HEARTBEAT_TOKEN      # shared secret for GET /heartbeat/state
