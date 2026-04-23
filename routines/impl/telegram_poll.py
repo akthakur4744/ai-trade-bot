@@ -30,35 +30,45 @@ HEARTBEAT_KEY = "last_telegram_poll_ts"
 
 
 def _get_offset(db) -> int:
-    with db.get_session() as s:
-        row = s.query(AppState).filter_by(key=OFFSET_KEY).first()
-        if not row:
-            return 0
-        try:
-            return int(row.value)
-        except ValueError:
-            return 0
+    try:
+        with db.get_session() as s:
+            row = s.query(AppState).filter_by(key=OFFSET_KEY).first()
+            if not row:
+                return 0
+            try:
+                return int(row.value)
+            except ValueError:
+                return 0
+    except Exception as exc:
+        logger.warning("db_get_offset_failed", error=str(exc))
+        return 0
 
 
 def _set_offset(db, offset: int) -> None:
-    with db.get_session() as s:
-        row = s.query(AppState).filter_by(key=OFFSET_KEY).first()
-        if row:
-            row.value = str(offset)
-        else:
-            s.add(AppState(key=OFFSET_KEY, value=str(offset)))
-        s.commit()
+    try:
+        with db.get_session() as s:
+            row = s.query(AppState).filter_by(key=OFFSET_KEY).first()
+            if row:
+                row.value = str(offset)
+            else:
+                s.add(AppState(key=OFFSET_KEY, value=str(offset)))
+            s.commit()
+    except Exception as exc:
+        logger.warning("db_set_offset_failed", error=str(exc))
 
 
 def _heartbeat(db) -> None:
-    with db.get_session() as s:
-        row = s.query(AppState).filter_by(key=HEARTBEAT_KEY).first()
-        now = datetime.now(timezone.utc).isoformat()
-        if row:
-            row.value = now
-        else:
-            s.add(AppState(key=HEARTBEAT_KEY, value=now))
-        s.commit()
+    try:
+        with db.get_session() as s:
+            row = s.query(AppState).filter_by(key=HEARTBEAT_KEY).first()
+            now = datetime.now(timezone.utc).isoformat()
+            if row:
+                row.value = now
+            else:
+                s.add(AppState(key=HEARTBEAT_KEY, value=now))
+            s.commit()
+    except Exception as exc:
+        logger.warning("db_heartbeat_failed", error=str(exc))
 
 
 class _CallbackRouter:
