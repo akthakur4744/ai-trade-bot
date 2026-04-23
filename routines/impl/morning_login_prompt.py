@@ -27,10 +27,16 @@ def main() -> int:
 
     cfg = load_config()
     db = Database(cfg.database.url)
-    with db.get_session() as s:
-        if get_active_session(s):
-            logger.info("kite_session_already_active_skip")
-            return 0
+
+    # Check if session is already active — fail open if DB is unreachable
+    # (CCR sandbox may block port 5432; better to send an extra prompt than miss one).
+    try:
+        with db.get_session() as s:
+            if get_active_session(s):
+                logger.info("kite_session_already_active_skip")
+                return 0
+    except Exception as exc:
+        logger.warning("db_unreachable_sending_prompt_anyway", error=str(exc))
 
     api_key = os.environ.get("KITE_API_KEY", "")
     if not api_key:
@@ -51,8 +57,13 @@ def main() -> int:
     if msg_id is None:
         return 1
 
-    with db.get_session() as s:
-        set_login_message_id(s, msg_id)
+    # Best-effort: record the message ID so the Cloudflare Worker can edit it on success.
+    try:
+        with db.get_session() as s:
+            set_login_message_id(s, msg_id)
+    except Exception as exc:
+        logger.warning("db_unreachable_skipping_msg_id_write", error=str(exc))
+
     logger.info("login_prompt_sent", message_id=msg_id)
     return 0
 
