@@ -17,6 +17,7 @@ import sys
 from datetime import datetime, timezone
 
 import structlog
+from sqlalchemy.exc import OperationalError
 
 from src.config import load_config
 from src.notifications.telegram import TelegramNotifier
@@ -41,24 +42,30 @@ def _get_offset(db) -> int:
 
 
 def _set_offset(db, offset: int) -> None:
-    with db.get_session() as s:
-        row = s.query(AppState).filter_by(key=OFFSET_KEY).first()
-        if row:
-            row.value = str(offset)
-        else:
-            s.add(AppState(key=OFFSET_KEY, value=str(offset)))
-        s.commit()
+    try:
+        with db.get_session() as s:
+            row = s.query(AppState).filter_by(key=OFFSET_KEY).first()
+            if row:
+                row.value = str(offset)
+            else:
+                s.add(AppState(key=OFFSET_KEY, value=str(offset)))
+            s.commit()
+    except OperationalError as exc:
+        logger.warning("telegram_poll_set_offset_failed", error=str(exc).split("\n")[0])
 
 
 def _heartbeat(db) -> None:
-    with db.get_session() as s:
-        row = s.query(AppState).filter_by(key=HEARTBEAT_KEY).first()
-        now = datetime.now(timezone.utc).isoformat()
-        if row:
-            row.value = now
-        else:
-            s.add(AppState(key=HEARTBEAT_KEY, value=now))
-        s.commit()
+    try:
+        with db.get_session() as s:
+            row = s.query(AppState).filter_by(key=HEARTBEAT_KEY).first()
+            now = datetime.now(timezone.utc).isoformat()
+            if row:
+                row.value = now
+            else:
+                s.add(AppState(key=HEARTBEAT_KEY, value=now))
+            s.commit()
+    except OperationalError as exc:
+        logger.warning("telegram_poll_heartbeat_failed", error=str(exc).split("\n")[0])
 
 
 class _CallbackRouter:
@@ -125,8 +132,13 @@ def main() -> int:
         logger.error("telegram_not_configured")
         return 2
 
+    try:
+        offset = _get_offset(db)
+    except OperationalError as exc:
+        logger.warning("telegram_poll_db_unavailable", error=str(exc).split("\n")[0])
+        return 0
+
     router = _CallbackRouter(cfg, db, tg)
-    offset = _get_offset(db)
     try:
         next_offset = tg.process_updates_once(offset, handler=router.handle)
     finally:
