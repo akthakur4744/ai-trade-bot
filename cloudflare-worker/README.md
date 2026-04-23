@@ -2,7 +2,7 @@
 
 Receives Zerodha's redirect after the user logs in on their phone, exchanges
 the `request_token` for an `access_token` via Kite's `generate_session`, and
-writes it to Neon `app_state`. Free tier (100k req/day) — plenty for one
+writes it to Supabase `app_state`. Free tier (100k req/day) — plenty for one
 login per trading day.
 
 ## Setup
@@ -34,7 +34,7 @@ Zerodha Developer Console as the redirect URL for your app:
   `last_autosell_tick_ts`, `kite_access_token_present`,
   `kite_session_expires_at`. Exists because the Cloud Routine sandbox
   blocks outbound Postgres (5432) — the heartbeat routine reads state over
-  HTTPS via this proxy instead of connecting to Neon directly.
+  HTTPS via this proxy instead of connecting to Supabase directly.
 
 ## Flow
 
@@ -43,7 +43,7 @@ Zerodha Developer Console as the redirect URL for your app:
 3. Worker calls Kite `generate_session(request_token, api_secret)` →
    receives `{access_token, ...}`.
 4. Worker writes token + `expires_at = next 15:30 IST` into both `paper` and
-   `live` Neon DBs (key: `kite_access_token`, `kite_session_expires_at` in
+   `live` Supabase DBs (key: `kite_access_token`, `kite_session_expires_at` in
    `app_state`).
 5. Worker sends Telegram confirmation, returns a plain "✅ Logged in" HTML
    page.
@@ -53,7 +53,7 @@ Zerodha Developer Console as the redirect URL for your app:
 - All secrets are Cloudflare Worker secrets — never in git.
 - The worker only accepts `GET /kite/callback`; all other paths 404.
 - `request_token` is one-time-use; Zerodha rejects replays.
-- `DATABASE_URL_PAPER` / `LIVE` use Neon's pooled connection string so the
+- `DATABASE_URL_PAPER` / `LIVE` use Supabase's pooled connection string so the
   edge function stays under the 30s CPU limit.
 
 ## Fallback

@@ -9,7 +9,7 @@ fresh token already exists for today, it exits 0 without posting.
 Post a one-tap Zerodha login link to Telegram. The user taps it on their phone,
 logs into Kite in the real browser, and Zerodha redirects back to the
 Cloudflare Worker (`cloudflare-worker/`) which writes the `access_token` to
-Neon `app_state`. From that point, every other routine reads the token.
+Supabase `app_state`. From that point, every other routine reads the token.
 
 ## Preconditions
 
@@ -41,7 +41,7 @@ Neon `app_state`. From that point, every other routine reads the token.
 
 ## Why CF Worker proxy instead of direct DB
 
-The Cloud Routine sandbox has **HTTPS-only egress** — TCP port 5432 (Neon
+The Cloud Routine sandbox has **HTTPS-only egress** — TCP port 5432 (Supabase
 Postgres) is blocked. Session state is read over HTTPS via `GET /heartbeat/state`
 on the Cloudflare Worker, using the same `HEARTBEAT_STATE_URL` +
 `HEARTBEAT_TOKEN` env vars as the `heartbeat` routine.

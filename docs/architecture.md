@@ -156,13 +156,13 @@ Insight-Alpha is a multi-agent AI trading system for Indian equity markets. It c
 | `src/execution/` | Broker ABC, PaperBroker, LiveBroker, OrderManager, AutoExitMonitor, AutoSellManager |
 | `src/notifications/` | Telegram (interactive inline keyboards) and WhatsApp (Twilio) notifiers |
 | `src/web/` | FastAPI dashboard, Kite OAuth flow, engine control, approval workflow APIs |
-| `src/storage/` | SQLAlchemy ORM (9 tables + Alembic migrations), Neon Postgres (paper/live DBs); SQLite retained as offline-dev fallback |
+| `src/storage/` | SQLAlchemy ORM (9 tables + Alembic migrations), Supabase Postgres (paper/live DBs); SQLite retained as offline-dev fallback |
 | `src/feedback/` | PostmortemAgent, PostmortemPipeline, MemoryWriter (Telegram-gated), MemoryContext, WeeklyReviewAgent, FeedbackTracker, Reporter |
 | `config/` | YAML configs: default, paper, live, strategies/, watchlist.yaml |
 | `scripts/` | CLI tools: kite_auth.py (manual daily OAuth), kite_auto_login.py (local debug only — NOT automated login), backtest_cli.py |
 | `workers/` | Fly.io always-on worker: `auto_sell_tick.py` (60s loop, software exit conditions) |
 | `routines/` | Cloud Routine definitions: morning-login-prompt, signal-scan, telegram-poll, heartbeat, etc. |
-| `cloudflare-worker/` | Kite OAuth callback handler — writes `access_token` to Neon `app_state` |
+| `cloudflare-worker/` | Kite OAuth callback handler — writes `access_token` to Supabase `app_state` |
 | `tests/` | unit/, integration/, backtest/ |
 
 ---
@@ -218,7 +218,7 @@ SCORE_SIGNAL_TOOL = {
              — reconcile_gtt_on_startup(): Check GTT status on exchange, re-place if needed
 09:15 IST  — Market opens
 Every 60s  — Fly.io auto-sell-tick worker: tick_auto_sell()
-               → re-auth Kite (reads token from Neon app_state)
+               → re-auth Kite (reads token from Supabase app_state)
                → reload trigger dict from DB (syncs with telegram-poll engine)
                → check software exit conditions (trailing, time, structure, confidence)
                → update GTT stop leg if trailing stop improved (rate-limited)
@@ -442,7 +442,7 @@ All critical runtime state is persisted to the database and restored on applicat
 | Trade history (feedback) | Reconstructed from `trades` table on startup |
 | Dashboard state | Repopulated from `signals` and `trades` tables on engine start |
 
-Two separate Neon Postgres databases are used — one per execution mode (`DATABASE_URL_PAPER`, `DATABASE_URL_LIVE`). SQLite is retained as an offline-dev fallback. Schema managed by Alembic; run `alembic upgrade head` after any `models.py` change.
+Two separate Supabase Postgres projects are used — one per execution mode (`DATABASE_URL_PAPER`, `DATABASE_URL_LIVE`). SQLite is retained as an offline-dev fallback. Schema managed by Alembic; run `alembic upgrade head` after any `models.py` change.
 
 For concurrent read/write safety in local dev (SQLite), WAL mode is enabled.
 
@@ -468,11 +468,11 @@ For the full database schema diagram, see [hld.md](hld.md).
 | GTT startup reconciliation | Re-places protection for positions left unprotected after crash/restart |
 | Telegram inline keyboards | Interactive mobile-first UX, free, instant |
 | State persistence to DB | Survives restarts — no lost positions, triggers, or pending signals |
-| Neon Postgres (two DBs) | Separate paper/live state; cloud-native, no ops overhead |
+| Supabase Postgres (two projects) | Separate paper/live state; cloud-native, free tier, no ops overhead |
 | Alembic migrations | Schema versioned — safe to evolve models.py without data loss |
 | Cloud Routines (1h+ cadence) | Scheduled work: signal scan, telegram poll, heartbeat, reviews |
 | Fly.io always-on worker | Sub-minute auto-sell monitoring (60s); Routines can't go below 1h |
-| Cloudflare Worker | Receives Kite OAuth redirect; writes token to Neon without exposing the app |
+| Cloudflare Worker | Receives Kite OAuth redirect; writes token to Supabase without exposing the app |
 | GitHub PR per memory update | Memory changes require manual merge — no auto-commit to main |
 | Pydantic config validation | Catches misconfiguration at startup, not at runtime |
 | structlog JSON logging | Machine-parseable logs for analysis and alerting |

@@ -13,7 +13,7 @@ Watchdog that alerts if any critical trigger has stopped firing:
 
 ## State read path
 
-Cloud Routines can't reach Neon on port 5432 (HTTPS-only egress). This
+Cloud Routines can't reach Supabase on port 5432 (HTTPS-only egress). This
 routine reads `app_state` via the Cloudflare Worker proxy:
 
 ```

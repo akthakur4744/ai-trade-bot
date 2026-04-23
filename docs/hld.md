@@ -51,8 +51,8 @@ Insight-Alpha is an AI-powered equity trading agent for Indian markets (NSE) via
 | Claude API (Anthropic) | News interpretation, signal scoring, memory drafts | REST API (tool_use) |
 | Telegram Bot API | Interactive notifications with inline keyboards | HTTP polling |
 | News RSS Feeds | Market news for sentiment analysis | HTTP/RSS |
-| Neon Postgres | Persistent state: two DBs (`paper`, `live`) | PostgreSQL |
-| Cloudflare Worker | Kite OAuth callback handler → writes token to Neon | HTTPS |
+| Supabase Postgres | Persistent state: two projects (`paper`, `live`) | PostgreSQL |
+| Cloudflare Worker | Kite OAuth callback handler → writes token to Supabase | HTTPS |
 | Fly.io | Always-on auto-sell-tick worker (60s cadence) | Docker + Fly Machines |
 | GitHub REST API | Opens PR per approved memory update | HTTPS (fine-grained PAT) |
 
@@ -79,7 +79,7 @@ Insight-Alpha is an AI-powered equity trading agent for Indian markets (NSE) via
 │   └─────────┘ └──────────┘ └────────┘ └─────────┘          │
 ├─────────────────────────────────────────────────────────────┤
 │                    PERSISTENCE LAYER                          │
-│   SQLAlchemy ORM + Alembic  │  Neon Postgres (paper + live)  │
+│   SQLAlchemy ORM + Alembic  │  Supabase Postgres (paper + live)  │
 │   9 tables: Signal, Trade, DailyMetric,                      │
 │   PositionState, AutoSellTriggerState, PendingSignalState,   │
 │   PendingMemoryUpdate, AppState (+ SQLite offline-dev)        │
@@ -123,7 +123,7 @@ Insight-Alpha is an AI-powered equity trading agent for Indian markets (NSE) via
 │                                 │                                     │
 │                      ┌──────────▼──────────────────────┐             │
 │                      │ Persistence Layer                │             │
-│                      │ Neon Postgres (paper + live DBs) │             │
+│                      │ Supabase Postgres (paper + live DBs) │             │
 │                      │ 9 tables, Alembic migrations     │             │
 │                      └─────────────────────────────────┘             │
 └──────────────────────────────────────────────────────────────────────┘
@@ -480,7 +480,7 @@ Auto-sell triggers are persisted to `auto_sell_trigger_state` table. On restart:
 |--------|-----------|-----------|
 | Market Data | Real (Kite API) | Real (Kite API) |
 | Order Execution | Simulated (LTP + 5 bps slippage) | Real (Kite `place_order()`) |
-| Database | Neon Postgres (`DATABASE_URL_PAPER`) | Neon Postgres (`DATABASE_URL_LIVE`) |
+| Database | Supabase Postgres (`DATABASE_URL_PAPER`) | Supabase Postgres (`DATABASE_URL_LIVE`) |
 | Config | `config/paper.yaml` | `config/live.yaml` |
 | Safety | No real money risk | Requires `CONFIRM_LIVE_TRADING=true` |
 | Code Path | Same pipeline | Same pipeline, different broker impl |
@@ -552,7 +552,7 @@ Key configuration areas:
 | Data Processing | `pandas`, `numpy` |
 | Config Validation | `pydantic` |
 | Database ORM | `SQLAlchemy` + Alembic migrations |
-| Database | Neon Postgres (paper + live); SQLite offline-dev fallback |
+| Database | Supabase Postgres (paper + live); SQLite offline-dev fallback |
 | Web Framework | `FastAPI` + `Jinja2` |
 | ASGI Server | `uvicorn` |
 | Scheduler | `APScheduler` (local); Cloud Routines (production) |
@@ -581,11 +581,11 @@ python start.py        # web dashboard + engine
 |-----------|----------|---------|
 | Signal scan, Telegram poll, Heartbeat, Reviews | Claude Code Cloud Routines | Scheduled work (≥1h cadence) |
 | Auto-sell tick | Fly.io (`shared-cpu-1x`, 256MB, ~$2/mo) | 60s software exit monitoring |
-| Kite OAuth callback | Cloudflare Worker (free tier) | Receives redirect → writes token to Neon |
-| Persistence | Neon Postgres (2 DBs) | `paper` + `live` state, cloud-native |
+| Kite OAuth callback | Cloudflare Worker (free tier) | Receives redirect → writes token to Supabase |
+| Persistence | Supabase Postgres (2 projects) | `paper` + `live` state, cloud-native |
 | Memory audit trail | GitHub PRs (fine-grained PAT) | One PR per approved memory update |
 
-**Daily login flow:** `morning-login-prompt` Routine posts Telegram link at 08:55 IST → user taps on mobile → Zerodha redirects to Cloudflare Worker → Worker writes `access_token` to both Neon DBs → all Routines and Fly worker read it via `get_active_session()`.
+**Daily login flow:** `morning-login-prompt` Routine posts Telegram link at 08:55 IST → user taps on mobile → Zerodha redirects to Cloudflare Worker → Worker writes `access_token` to both Supabase DBs → all Routines and Fly worker read it via `get_active_session()`.
 
 See `cloudflare-worker/README.md`, `routines/README.md`, and `workers/README.md` for full deploy steps.
 
@@ -600,7 +600,7 @@ See `cloudflare-worker/README.md`, `routines/README.md`, and `workers/README.md`
 | 4-agent debate pattern | Adversarial checking reduces false positives |
 | Approval-based execution | User stays in control, no surprise trades |
 | State persistence to DB | Survives restarts — no lost positions or triggers |
-| Neon Postgres (two DBs) | Separate paper/live state; cloud-native, zero ops |
+| Supabase Postgres (two projects) | Separate paper/live state; cloud-native, free tier, zero ops |
 | Alembic migrations | Schema versioned — safe to evolve models.py |
 | Cloud Routines (≥1h) | All scheduled work; Fly.io only for sub-minute auto-sell |
 | Fly.io always-on worker | 60s auto-sell tick — Routines can't go below 1h |

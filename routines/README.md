@@ -41,8 +41,8 @@ Set these in the Claude Code dashboard under each Routine's **Secrets** tab:
 
 | Secret | Required by | Purpose |
 |--------|-------------|---------|
-| `DATABASE_URL_PAPER` | all except morning-login-prompt | Neon paper DB |
-| `DATABASE_URL_LIVE` | all except morning-login-prompt | Neon live DB |
+| `DATABASE_URL_PAPER` | all except morning-login-prompt | Supabase paper DB |
+| `DATABASE_URL_LIVE` | all except morning-login-prompt | Supabase live DB |
 | `EXECUTION_MODE` | all | `paper` or `live` |
 | `KITE_API_KEY` | morning-login-prompt, signal-scan, telegram-poll | Zerodha API |
 | `KITE_API_SECRET` | signal-scan, telegram-poll | Zerodha API |

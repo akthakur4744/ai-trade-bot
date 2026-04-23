@@ -8,7 +8,7 @@ before the engine arms.
 ## Steps
 
 1. **Kite session**
-   - Read `kite_access_token` from Neon `app_state`. Confirm
+   - Read `kite_access_token` from Supabase `app_state`. Confirm
      `kite_session_expires_at` is in the future.
    - If stale/missing, Telegram alert "session not active" and exit 0 —
      the `morning-login-prompt` routine will (or already did) re-post the
@@ -19,13 +19,13 @@ before the engine arms.
    - Flag any value that drifted from guardrails in `CLAUDE.md` (10k/trade,
      30k deployed, 1k daily loss, 3 positions).
 3. **Watchlist** — read `config/watchlist.yaml` symbol count; warn if any
-   symbol failed last LTP fetch (check structlog entries in Neon `app_state`
+   symbol failed last LTP fetch (check structlog entries in Supabase `app_state`
    if we persist them, else skip).
 4. **Regime** — invoke the `macro-regime-detector` skill. If regime = bear,
    confirm bullish-confidence cap (0.6) is active in config.
 5. **Overnight news** — invoke `market-news-analyst` for the last 16h on
    watchlist symbols; surface anything with impact ≥ high.
-6. **Open positions & GTTs** — query Neon: open positions, active triggers,
+6. **Open positions & GTTs** — query Supabase: open positions, active triggers,
    GTT OCO status. Any position without exchange GTT protection is a red
    flag — run `gtt-reconcile.md`.
 

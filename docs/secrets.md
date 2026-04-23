@@ -18,7 +18,7 @@ All runtime secrets live in **three** places. Keep them in sync.
 | `ANTHROPIC_API_KEY`     | All routines                    | .env + Claude                           | Rotate quarterly                        |
 | `TELEGRAM_BOT_TOKEN`    | All routines, Worker            | .env + Claude + Cloudflare              | On compromise — BotFather               |
 | `TELEGRAM_CHAT_ID`      | All routines, Worker            | .env + Claude + Cloudflare              | Stable — almost never rotates           |
-| `DATABASE_URL_PAPER`    | Paper-mode routines, Worker     | .env + Claude + Cloudflare              | On compromise — Neon reset password     |
+| `DATABASE_URL_PAPER`    | Paper-mode routines, Worker     | .env + Claude + Cloudflare              | On compromise — Supabase reset password |
 | `DATABASE_URL_LIVE`     | Live-mode routines, Worker      | .env + Claude + Cloudflare              | Same                                    |
 | `GITHUB_PAT`            | Memory-merge flow (telegram-poll) | Claude trigger env                     | Rotate every 90 days                    |
 | `HEARTBEAT_TOKEN`       | `heartbeat` routine, Worker     | Claude + Cloudflare                     | On compromise — rotate in both          |
@@ -26,7 +26,7 @@ All runtime secrets live in **three** places. Keep them in sync.
 
 ## Rotation drill
 
-1. Generate the new value (Kite console / Neon / GitHub / BotFather).
+1. Generate the new value (Kite console / Supabase / GitHub / BotFather).
 2. Update `.env` first; smoke-test locally.
 3. `wrangler secret put NAME` → redeploy Worker.
 4. `fly secrets set NAME=...` → Fly worker auto-restarts.

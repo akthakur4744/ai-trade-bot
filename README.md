@@ -157,7 +157,7 @@ All critical state survives application restarts:
 | Kill switch, daily PnL | `app_state` key-value table |
 | Trade history | `trades` table (existing) |
 
-Database: Neon Postgres — two separate DBs (`paper` and `live`). The engine picks the URL matching `EXECUTION_MODE` (`DATABASE_URL_PAPER` or `DATABASE_URL_LIVE`). Schema managed by Alembic (`alembic upgrade head`). Local SQLite remains as an offline-dev fallback when neither env var is set.
+Database: Supabase Postgres — two separate projects (`paper` and `live`). The engine picks the URL matching `EXECUTION_MODE` (`DATABASE_URL_PAPER` or `DATABASE_URL_LIVE`). Schema managed by Alembic (`alembic upgrade head`). Local SQLite remains as an offline-dev fallback when neither env var is set.
 
 ## Documentation
 
