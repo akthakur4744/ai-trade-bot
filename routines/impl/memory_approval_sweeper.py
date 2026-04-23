@@ -19,25 +19,28 @@ logger = structlog.get_logger(__name__)
 
 
 def main() -> int:
-    cfg = load_config()
-    db = Database(cfg.database.url)
-    tg = TelegramNotifier()
+    count = 0
+    try:
+        cfg = load_config()
+        db = Database(cfg.database.url)
+        tg = TelegramNotifier()
 
-    now = datetime.now(timezone.utc)
-    with db.get_session() as s:
-        expired = (
-            s.query(PendingMemoryUpdate)
-            .filter(PendingMemoryUpdate.status == "pending")
-            .filter(PendingMemoryUpdate.expires_at < now)
-            .all()
-        )
-        count = 0
-        for row in expired:
-            row.status = "expired"
-            if tg.is_configured and row.telegram_message_id:
-                tg.update_memory_message(row.telegram_message_id, "expired")
-            count += 1
-        s.commit()
+        now = datetime.now(timezone.utc)
+        with db.get_session() as s:
+            expired = (
+                s.query(PendingMemoryUpdate)
+                .filter(PendingMemoryUpdate.status == "pending")
+                .filter(PendingMemoryUpdate.expires_at < now)
+                .all()
+            )
+            for row in expired:
+                row.status = "expired"
+                if tg.is_configured and row.telegram_message_id:
+                    tg.update_memory_message(row.telegram_message_id, "expired")
+                count += 1
+            s.commit()
+    except Exception:
+        logger.exception("memory_sweeper_error", expired_count=count)
     logger.info("memory_sweeper_done", expired_count=count)
     return 0
 

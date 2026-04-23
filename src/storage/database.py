@@ -40,6 +40,7 @@ class Database:
                 pool_size=5,
                 max_overflow=10,
                 pool_recycle=1800,
+                connect_args={"connect_timeout": 10},
             )
         self._session_factory = sessionmaker(bind=self.engine)
 
