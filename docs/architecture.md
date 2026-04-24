@@ -160,9 +160,9 @@ Insight-Alpha is a multi-agent AI trading system for Indian equity markets. It c
 | `src/feedback/` | PostmortemAgent, PostmortemPipeline, MemoryWriter (Telegram-gated), MemoryContext, WeeklyReviewAgent, FeedbackTracker, Reporter |
 | `config/` | YAML configs: default, paper, live, strategies/, watchlist.yaml |
 | `scripts/` | CLI tools: kite_auth.py (manual daily OAuth), kite_auto_login.py (local debug only — NOT automated login), backtest_cli.py |
-| `workers/` | Fly.io always-on worker: `auto_sell_tick.py` (60s loop, software exit conditions) |
-| `routines/` | Cloud Routine definitions: morning-login-prompt, signal-scan, telegram-poll, heartbeat, etc. |
-| `cloudflare-worker/` | Kite OAuth callback handler — writes `access_token` to Supabase `app_state` |
+| `workers/` | Fly.io combined entrypoint (`main.py`): auto-sell tick daemon thread (60s) + FastAPI trigger API on port 8080 (`trigger_api.py`) |
+| `routines/` | Cloud Routine definitions: morning-login-prompt, signal-scan, telegram-poll, heartbeat, memory-approval-sweeper, etc. All routines make HTTPS-only calls — no direct DB access from signal-scan, telegram-poll, or memory-approval-sweeper |
+| `cloudflare-worker/` | Kite OAuth callback + HTTPS proxy for CCR routines: `/heartbeat/state`, `/memory/sweep` (GET + POST) |
 | `tests/` | unit/, integration/, backtest/ |
 
 ---
@@ -470,9 +470,9 @@ For the full database schema diagram, see [hld.md](hld.md).
 | State persistence to DB | Survives restarts — no lost positions, triggers, or pending signals |
 | Supabase Postgres (two projects) | Separate paper/live state; cloud-native, free tier, no ops overhead |
 | Alembic migrations | Schema versioned — safe to evolve models.py without data loss |
-| Cloud Routines (1h+ cadence) | Scheduled work: signal scan, telegram poll, heartbeat, reviews |
-| Fly.io always-on worker | Sub-minute auto-sell monitoring (60s); Routines can't go below 1h |
-| Cloudflare Worker | Receives Kite OAuth redirect; writes token to Supabase without exposing the app |
+| Cloud Routines (1h+ cadence) | Scheduled work: signal scan, telegram poll, heartbeat, reviews. All 5 core routines make HTTPS-only calls — CCR sandbox blocks TCP 5432/6543 |
+| Fly.io always-on worker | Combined entrypoint (`workers/main.py`): auto-sell tick (60s daemon thread) + HTTP trigger API on port 8080. CCR delegates `run_cycle()` + Telegram poll here via `POST /trigger/scan` and `POST /trigger/poll` |
+| Cloudflare Worker | Kite OAuth callback + HTTPS proxy for CCR: `/heartbeat/state`, `GET /memory/sweep`, `POST /memory/sweep` |
 | GitHub PR per memory update | Memory changes require manual merge — no auto-commit to main |
 | Pydantic config validation | Catches misconfiguration at startup, not at runtime |
 | structlog JSON logging | Machine-parseable logs for analysis and alerting |

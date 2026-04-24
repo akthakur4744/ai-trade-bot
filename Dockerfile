@@ -25,4 +25,4 @@ COPY config ./config
 RUN pip install --no-deps feedparser \
     && pip install .
 
-CMD ["python", "-m", "workers.auto_sell_tick"]
+CMD ["python", "-m", "workers.main"]

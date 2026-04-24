@@ -10,8 +10,8 @@ rollover) and re-loads auto-sell triggers from the DB, so positions
 newly approved via the `telegram_poll` routine are picked up without
 restarting the worker.
 
-Deployed as a single `shared-cpu-1x / 256 MB` Fly machine. Outside
-market hours it idles with a 5-minute sleep. Heartbeat key
+Deployed as part of `workers.main` alongside the trigger API.
+Outside market hours it idles with a 5-minute sleep. Heartbeat key
 `last_autosell_tick_ts` in `app_state` is watched by the heartbeat
 Routine.
 """
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import signal as signal_mod
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -62,10 +63,8 @@ def _sleep_interruptible(seconds: int) -> None:
         time.sleep(1)
 
 
-def main() -> int:
-    signal_mod.signal(signal_mod.SIGTERM, _on_signal)
-    signal_mod.signal(signal_mod.SIGINT, _on_signal)
-
+def run_loop(stop_event: threading.Event | None = None) -> None:
+    """Auto-sell main loop — safe to run in a thread (no signal registration)."""
     cfg = load_config()
     db = Database(cfg.database.url)
 
@@ -73,9 +72,20 @@ def main() -> int:
 
     engine = None  # Lazy-init on first market-open tick to defer heavy imports.
 
-    while not _shutdown:
+    def _sleep(seconds: int) -> None:
+        if stop_event is not None:
+            stop_event.wait(timeout=seconds)
+        else:
+            _sleep_interruptible(seconds)
+
+    def _should_stop() -> bool:
+        if stop_event is not None:
+            return stop_event.is_set()
+        return _shutdown
+
+    while not _should_stop():
         if not is_market_open():
-            _sleep_interruptible(IDLE_SLEEP_SECONDS)
+            _sleep(IDLE_SLEEP_SECONDS)
             continue
 
         if engine is None:
@@ -84,7 +94,7 @@ def main() -> int:
                 engine = TradingEngine(cfg)
             except Exception as e:
                 logger.error("engine_init_failed", error=str(e))
-                _sleep_interruptible(IDLE_SLEEP_SECONDS)
+                _sleep(IDLE_SLEEP_SECONDS)
                 continue
 
         try:
@@ -97,9 +107,15 @@ def main() -> int:
         except Exception as e:
             logger.error("heartbeat_write_failed", error=str(e))
 
-        _sleep_interruptible(TICK_SECONDS)
+        _sleep(TICK_SECONDS)
 
     logger.info("auto_sell_worker_stopped")
+
+
+def main() -> int:
+    signal_mod.signal(signal_mod.SIGTERM, _on_signal)
+    signal_mod.signal(signal_mod.SIGINT, _on_signal)
+    run_loop()  # No stop_event — uses _shutdown global via _sleep_interruptible.
     return 0
 
 

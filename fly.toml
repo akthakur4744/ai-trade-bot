@@ -9,13 +9,18 @@ primary_region = "bom"
 
 [[vm]]
   size = "shared-cpu-1x"
-  memory = "256mb"
+  memory = "512mb"   # bumped from 256mb: scan background task + auto-sell loop can coexist
   cpus = 1
 
 [processes]
-  worker = "python -m workers.auto_sell_tick"
+  app = "python -m workers.main"
 
-# No [[services]] — this is a long-running worker, not an HTTP service.
-# Don't auto-stop; we need the 60s loop to be continuous during market hours.
+[http_service]
+  internal_port = 8080
+  force_https   = true
+  auto_stop_machines  = false   # must stay running for 60s auto-sell loop
+  auto_start_machines = false
+  processes             = ["app"]
+
 [deploy]
   strategy = "immediate"

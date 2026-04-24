@@ -15,39 +15,36 @@ remote execution.
 
 ## Preconditions
 
-- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `DATABASE_URL_*`, `GITHUB_PAT` set.
-- `app_state` key `telegram_update_offset` tracks the next update_id to fetch.
+- `FLY_WORKER_URL` and `TRIGGER_API_TOKEN` set.
+- Fly.io worker is running (auto-sell tick + trigger API).
 
-## Behavior
+## Behavior (HTTPS-only — delegates to Fly.io)
 
-1. Read `telegram_update_offset` from `app_state` (default 0).
-2. Call Telegram `getUpdates` with `offset` + `timeout=0` (short poll — we are
-   the one driving the cadence).
-3. For each update with a `callback_query`:
-   a. If the callback data matches a pending_signal row → dispatch to the
-      approval callback handler (reuse `PendingSignalManager.handle_callback`).
-   b. If it matches a pending_memory_update row → open (or close) a GitHub PR
-      via `src/feedback/memory_writer.py::MemoryWriter.merge_via_pr()`.
-4. Update `telegram_update_offset` to `last_update_id + 1`.
-5. Exit 0.
+This routine is now a thin one-liner: it delegates all Telegram polling,
+callback dispatch, offset persistence, and heartbeat writing to the Fly.io
+trigger API which has full Postgres access.
 
-## Implementation sketch
+1. `POST $FLY_WORKER_URL/trigger/poll` with `X-Trigger-Token` header.
+2. Fly.io worker:
+   - Reads `telegram_update_offset` from `app_state`.
+   - Calls Telegram `getUpdates` (short poll, `timeout=0`).
+   - Dispatches callbacks: signal approvals → `TradingEngine._handle_telegram_callback()`; memory approvals → `PostmortemPipeline.handle_memory_callback()`.
+   - Persists updated offset + `last_telegram_poll_ts` to `app_state`.
+3. Returns `{"ok":true,"offset_before":N,"offset_after":M}`.
+4. CCR routine exits 0.
 
-Refactor `TelegramNotifier._poll_callbacks` to split out:
+No SQLAlchemy, no direct Supabase connection, no Telegram API calls from CCR — pure HTTPS delegation.
+
+## Required env vars
+
+| Var | Purpose |
+|-----|---------|
+| `FLY_WORKER_URL` | `https://insight-alpha-auto-sell.fly.dev` |
+| `TRIGGER_API_TOKEN` | Shared secret for Fly.io trigger API |
+
+## Implementation entrypoint
 
 ```python
-def process_updates_once(self, offset: int, handler: Callable[[str, str], None]) -> int:
-    """One-shot: fetch updates from `offset`, dispatch, return next offset."""
-    url = f"{TELEGRAM_API_BASE.format(token=self._token)}/getUpdates"
-    resp = httpx.get(url, params={"offset": offset, "timeout": 0}, timeout=10.0)
-    data = resp.json()
-    next_offset = offset
-    for update in data.get("result", []):
-        next_offset = max(next_offset, update["update_id"] + 1)
-        if "callback_query" in update:
-            self._handle_callback(update["callback_query"], handler)
-    return next_offset
+# routines/impl/telegram_poll.py  (HTTPS-only, no SQLAlchemy)
+python -m routines.impl.telegram_poll
 ```
-
-The existing daemon `_poll_callbacks` becomes a thin loop over
-`process_updates_once` for local-dev use.
