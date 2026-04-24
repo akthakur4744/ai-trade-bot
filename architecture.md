@@ -40,7 +40,7 @@ Exit Notification (Telegram + Dashboard)
 | `src/execution/` | PaperBroker, LiveBroker, OrderManager, AutoExitMonitor, AutoSellManager |
 | `src/notifications/` | Telegram (interactive buttons) + WhatsApp notifiers |
 | `src/web/` | FastAPI dashboard, Kite OAuth, engine control, approval workflow |
-| `src/storage/` | SQLAlchemy ORM (7 tables), persistence layer, SQLite/PostgreSQL |
+| `src/storage/` | SQLAlchemy ORM (9 tables + Alembic), Supabase Postgres (paper/live); SQLite offline-dev fallback |
 | `src/feedback/` | Performance tracking + reporting |
 
 ## Alpha Score Formula
@@ -59,5 +59,26 @@ Filters: confidence ≥ 0.65 | market_confirmation ≥ 0.6 | liquidity ≥ 0.6 |
 2. Total deployed ≤ ₹30,000
 3. Daily loss > -₹1,000
 4. Open positions < 3
+
+## Cloud Topology
+
+```
+CCR heartbeat / morning_login  → GET  CF Worker /heartbeat/state     (HTTPS ✓)
+CCR memory_sweeper             → GET  CF Worker /memory/sweep         (HTTPS ✓)
+                               → POST CF Worker /memory/sweep         (HTTPS ✓)
+CCR signal_scan                → GET  CF Worker /heartbeat/state     (session check)
+                               → POST Fly.io    /trigger/scan         (async, 200 immediately)
+CCR telegram_poll              → POST Fly.io    /trigger/poll         (sync, full dispatch)
+
+Fly.io worker (port 8080)
+  ├── daemon thread: auto_sell_tick.run_loop()  (60s auto-sell monitor)
+  └── FastAPI: /trigger/scan  /trigger/poll     (CCR delegation endpoints)
+
+CF Worker endpoints (HTTPS proxy — CCR sandbox blocks TCP 5432/6543)
+  ├── GET  /kite/callback       Zerodha OAuth → write token to Supabase
+  ├── GET  /heartbeat/state     Read app_state watchdog keys
+  ├── GET  /memory/sweep        Query expired pending_memory_updates
+  └── POST /memory/sweep        Mark rows as expired
+```
 
 See [docs/architecture.md](docs/architecture.md) for full details and [docs/hld.md](docs/hld.md) for the High-Level Design.

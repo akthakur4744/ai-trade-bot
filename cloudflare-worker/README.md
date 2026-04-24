@@ -29,14 +29,16 @@ Zerodha Developer Console as the redirect URL for your app:
 
 ## Endpoints
 
-- `GET /kite/callback` — Zerodha OAuth redirect handler (see Flow below).
-- `GET /heartbeat/state?mode=paper|live` — read-only view of the watchdog
-  keys in `app_state`. Requires `X-Heartbeat-Token: $HEARTBEAT_TOKEN` header.
-  Returns JSON with `last_signal_scan_ts`, `last_telegram_poll_ts`,
-  `last_autosell_tick_ts`, `kite_access_token_present`,
-  `kite_session_expires_at`. Exists because the Cloud Routine sandbox
-  blocks outbound Postgres (port 6543) — the heartbeat routine reads state
-  over HTTPS via this proxy instead of connecting to Supabase directly.
+All authenticated endpoints require `X-Heartbeat-Token: $HEARTBEAT_TOKEN` header.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/kite/callback` | Zerodha OAuth redirect handler (see Flow below). No auth token needed — called by Zerodha. |
+| `GET` | `/heartbeat/state?mode=paper\|live` | Read-only view of watchdog keys in `app_state`. Returns `last_signal_scan_ts`, `last_telegram_poll_ts`, `last_autosell_tick_ts`, `kite_access_token_present`, `kite_session_expires_at`. |
+| `GET` | `/memory/sweep?mode=paper\|live` | Query expired `pending_memory_updates` rows (no DB mutation). Returns `{ expired: [{id, telegram_message_id, title}] }`. |
+| `POST` | `/memory/sweep?mode=paper\|live` | Body: `{ "ids": [1,2,3] }`. Marks listed rows as `status='expired'`. Returns `{ ok: true, count: N }`. |
+
+These endpoints exist because the Cloud Routine sandbox blocks outbound Postgres (port 6543) — routines read/write state over HTTPS via this proxy instead of connecting to Supabase directly.
 
 ## Flow
 
@@ -53,10 +55,9 @@ Zerodha Developer Console as the redirect URL for your app:
 ## Security
 
 - All secrets are Cloudflare Worker secrets — never in git.
-- The worker only accepts `GET /kite/callback`; all other paths 404.
+- All `/heartbeat/*` and `/memory/*` endpoints require `X-Heartbeat-Token` with constant-time comparison (no timing oracle).
 - `request_token` is one-time-use; Zerodha rejects replays.
-- `SUPABASE_KEY_PAPER/LIVE` are `service_role` keys — they bypass Row Level
-  Security. Never expose them client-side.
+- `SUPABASE_KEY_PAPER/LIVE` are `service_role` keys — they bypass Row Level Security. Never expose them client-side.
 
 ## Fallback
 

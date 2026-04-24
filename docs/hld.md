@@ -52,8 +52,8 @@ Insight-Alpha is an AI-powered equity trading agent for Indian markets (NSE) via
 | Telegram Bot API | Interactive notifications with inline keyboards | HTTP polling |
 | News RSS Feeds | Market news for sentiment analysis | HTTP/RSS |
 | Supabase Postgres | Persistent state: two projects (`paper`, `live`) | PostgreSQL |
-| Cloudflare Worker | Kite OAuth callback handler → writes token to Supabase | HTTPS |
-| Fly.io | Always-on auto-sell-tick worker (60s cadence) | Docker + Fly Machines |
+| Cloudflare Worker | Kite OAuth callback + CCR HTTPS proxy (`/heartbeat/state`, `/memory/sweep`) | HTTPS |
+| Fly.io | Always-on worker: auto-sell tick (60s daemon) + HTTP trigger API for CCR delegation | Docker + Fly Machines |
 | GitHub REST API | Opens PR per approved memory update | HTTPS (fine-grained PAT) |
 
 ---
@@ -166,8 +166,8 @@ Exit Notification → Feedback Tracker → Daily Metrics
 | 09:10 | signal-scan Routine | `load_instruments()` + GTT reconciliation |
 | 09:15 | — | Market opens |
 | Every 60s | Fly.io worker | `tick_auto_sell()` — software exit conditions |
-| Every hour | signal-scan Routine | `run_cycle()` — full pipeline execution |
-| Continuous | telegram-poll Routine | Telegram callback polling — button responses + memory approval |
+| Every hour | signal-scan Routine | Session check via CF Worker → `POST /trigger/scan` to Fly.io (async, returns 200 immediately). `run_cycle()` runs as Fly.io background task |
+| Continuous | telegram-poll Routine | `POST /trigger/poll` to Fly.io — offset read/dispatch/write all happen on Fly.io side with full DB access |
 | 15:15 | signal-scan Routine | Auto-exit MIS positions approaching EOD |
 | 15:30 | — | Market closes |
 | 15:35 | signal-scan Routine | `send_daily_summary()` — PnL, win rate, daily metrics |
@@ -559,7 +559,7 @@ Key configuration areas:
 | Logging | `structlog` (JSON) |
 | Notifications | Telegram Bot API, Twilio (WhatsApp) |
 | Edge proxy | Cloudflare Worker (Kite OAuth callback) |
-| Always-on worker | Fly.io Machines (`shared-cpu-1x`, 256MB) |
+| Always-on worker | Fly.io Machines (`shared-cpu-1x`, 512MB — bumped to allow scan background task + auto-sell loop to coexist) |
 | Memory audit | GitHub REST API (fine-grained PAT) |
 
 ---
@@ -579,11 +579,11 @@ python start.py        # web dashboard + engine
 
 | Component | Platform | Purpose |
 |-----------|----------|---------|
-| Signal scan, Telegram poll, Heartbeat, Reviews | Claude Code Cloud Routines | Scheduled work (≥1h cadence) |
-| Auto-sell tick | Fly.io (`shared-cpu-1x`, 256MB, ~$2/mo) | 60s software exit monitoring |
-| Kite OAuth callback | Cloudflare Worker (free tier) | Receives redirect → writes token to Supabase |
+| Signal scan, Telegram poll, Heartbeat, Reviews | Claude Code Cloud Routines | Scheduled work (≥1h cadence). All 5 core routines use HTTPS only — CCR sandbox blocks TCP 5432/6543 |
+| Auto-sell tick + Trigger API | Fly.io (`shared-cpu-1x`, 512MB, ~$4/mo) | 60s auto-sell loop (daemon thread) + FastAPI trigger API on port 8080. CCR delegates `run_cycle()` and Telegram polling here |
+| Kite OAuth + CCR DB proxy | Cloudflare Worker (free tier) | OAuth callback + `/heartbeat/state` + `/memory/sweep` (GET + POST) for routines that can't reach Postgres |
 | Persistence | Supabase Postgres (2 projects) | `paper` + `live` state, cloud-native |
-| Memory audit trail | GitHub PRs (fine-grained PAT) | One PR per approved memory update |
+| Memory audit trail | GitHub PRs (fine-grained PAT) | One PR per approved memory update (opened by Fly.io worker, not CCR) |
 
 **Daily login flow:** `morning-login-prompt` Routine posts Telegram link at 08:55 IST → user taps on mobile → Zerodha redirects to Cloudflare Worker → Worker writes `access_token` to both Supabase DBs → all Routines and Fly worker read it via `get_active_session()`.
 
@@ -602,9 +602,9 @@ See `cloudflare-worker/README.md`, `routines/README.md`, and `workers/README.md`
 | State persistence to DB | Survives restarts — no lost positions or triggers |
 | Supabase Postgres (two projects) | Separate paper/live state; cloud-native, free tier, zero ops |
 | Alembic migrations | Schema versioned — safe to evolve models.py |
-| Cloud Routines (≥1h) | All scheduled work; Fly.io only for sub-minute auto-sell |
-| Fly.io always-on worker | 60s auto-sell tick — Routines can't go below 1h |
-| Cloudflare Worker | Kite OAuth without exposing app publicly |
+| Cloud Routines (≥1h) | All scheduled work. CCR sandbox blocks TCP 5432/6543 — all 5 core routines use HTTPS-only calls via CF Worker + Fly.io trigger API |
+| Fly.io always-on worker | Two responsibilities: (1) 60s auto-sell tick in daemon thread; (2) HTTP trigger API on port 8080 for CCR delegation (`/trigger/scan`, `/trigger/poll`) |
+| Cloudflare Worker | Three responsibilities: (1) Kite OAuth callback; (2) `/heartbeat/state` HTTPS proxy; (3) `/memory/sweep` GET+POST for memory sweeper |
 | GitHub PR per memory update | Memory changes need human merge — no accidental overwrite |
 | Tool use for structured output | Eliminates JSON parse failures |
 | HMM regime detection | Filters strategy-regime mismatches |

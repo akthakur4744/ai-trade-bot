@@ -41,24 +41,24 @@ Set these in the Claude Code dashboard under each Routine's **Secrets** tab:
 
 | Secret | Required by | Purpose |
 |--------|-------------|---------|
-| `DATABASE_URL_PAPER` | all except morning-login-prompt | Supabase paper DB |
-| `DATABASE_URL_LIVE` | all except morning-login-prompt | Supabase live DB |
+| `DATABASE_URL_PAPER` | heartbeat, pre-market-check, gtt-reconcile, end-of-day-report, weekly-performance-review | Supabase paper DB (routines with direct DB access) |
+| `DATABASE_URL_LIVE` | same as above | Supabase live DB |
 | `EXECUTION_MODE` | all | `paper` or `live` |
-| `KITE_API_KEY` | morning-login-prompt, signal-scan, telegram-poll | Zerodha API |
-| `KITE_API_SECRET` | signal-scan, telegram-poll | Zerodha API |
+| `KITE_API_KEY` | morning-login-prompt | Zerodha API key (for login link generation) |
 | `TELEGRAM_BOT_TOKEN` | all | Bot notifications |
 | `TELEGRAM_CHAT_ID` | all | Your chat ID |
-| `ANTHROPIC_API_KEY` | signal-scan, telegram-poll | Claude API |
-| `GITHUB_TOKEN` | **telegram-poll only** | Open memory PRs (Contents + Pull requests write) |
-| `HEARTBEAT_STATE_URL` | heartbeat, morning-login-prompt | Cloudflare Worker proxy URL |
-| `HEARTBEAT_TOKEN` | heartbeat, morning-login-prompt | Auth token for the proxy |
+| `ANTHROPIC_API_KEY` | weekly-performance-review, postmortem-trade | Claude API (for review/postmortem drafts) |
+| `GITHUB_TOKEN` | **not needed in CCR** — memory PRs opened by Fly.io worker | Fine-grained PAT (Contents + Pull requests write) |
+| `HEARTBEAT_STATE_URL` | heartbeat, morning-login-prompt, signal-scan, memory-approval-sweeper | Cloudflare Worker proxy URL (e.g. `https://insight-alpha.<sub>.workers.dev/heartbeat/state`) |
+| `HEARTBEAT_TOKEN` | heartbeat, morning-login-prompt, signal-scan, memory-approval-sweeper | Auth token for CF Worker |
+| `FLY_WORKER_URL` | **signal-scan, telegram-poll** | `https://insight-alpha-auto-sell.fly.dev` |
+| `TRIGGER_API_TOKEN` | **signal-scan, telegram-poll** | Shared secret for Fly.io trigger API |
 
-`GITHUB_TOKEN` is a **fine-grained PAT** scoped to this repo with:
-- Repository permissions → **Contents: Read & write**
-- Repository permissions → **Pull requests: Read & write**
+### Notes
 
-It is only needed on `telegram-poll` because that is the sole Routine that
-can trigger `MemoryWriter` (via Telegram approve callbacks).
+- **`signal-scan`, `telegram-poll`, `memory-approval-sweeper`** make **no direct Postgres connections** — all DB access is proxied via CF Worker (HTTPS) or Fly.io trigger API (HTTPS). Do **not** add `DATABASE_URL_*` to these routines.
+- **`GITHUB_TOKEN`** is consumed by the Fly.io worker (`trigger_api.py → PostmortemPipeline → MemoryWriter`) after a Telegram approve callback. Set it as a `fly secrets set GITHUB_TOKEN=...` instead.
+- **`TRIGGER_API_TOKEN`** must match the value set via `fly secrets set TRIGGER_API_TOKEN=...`.
 
 ## Running locally
 

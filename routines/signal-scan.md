@@ -14,41 +14,34 @@ Telegram approval card.
 ## Preconditions
 
 - `is_market_open(now)` — else exit 0.
-- `get_active_session(db)` returns a live Kite session — else Telegram alert
-  "Session not active, please log in" and exit 0.
-- Risk guardrails met (daily loss floor, max positions, etc.).
+- CF Worker `/heartbeat/state` returns a live Kite session — else skip (heartbeat routine alerts separately).
+- Risk guardrails met (daily loss floor, max positions, etc.) — checked inside `engine.run_cycle()` on the Fly.io side.
 
-## Behavior
+## Behavior (HTTPS-only — no direct DB access)
 
-Exactly the signal-generation path of `src/main.py::Engine.run_once()`
-extracted so we don't spin the APScheduler loop. No execution here —
-execution happens only when the user taps Approve in Telegram, handled by
-the `telegram-poll` routine.
+1. Check `is_market_open()` — exit 0 if closed.
+2. Validate Kite session via `GET $HEARTBEAT_STATE_URL?mode=<mode>` (CF Worker).
+3. If session active: `POST $FLY_WORKER_URL/trigger/scan` with `X-Trigger-Token`.
+   - Fly.io returns `{"ok":true,"status":"accepted"}` immediately (async).
+   - `engine.run_cycle()` runs in a background task on the Fly.io worker.
+   - Heartbeat key `last_signal_scan_ts` is written to `app_state` after completion.
+4. Exit 0.
+
+No SQLAlchemy, no direct Supabase connection — pure HTTPS calls.
+
+## Required env vars
+
+| Var | Purpose |
+|-----|---------|
+| `HEARTBEAT_STATE_URL` | CF Worker URL, e.g. `https://insight-alpha.<sub>.workers.dev/heartbeat/state` |
+| `HEARTBEAT_TOKEN` | Auth token for CF Worker |
+| `EXECUTION_MODE` | `paper` or `live` |
+| `FLY_WORKER_URL` | `https://insight-alpha-auto-sell.fly.dev` |
+| `TRIGGER_API_TOKEN` | Shared secret for Fly.io trigger API |
 
 ## Implementation entrypoint
 
 ```python
-# routines/impl/signal_scan.py
-from src.config import load_config
-from src.storage.database import Database
-from src.data.kite_session import get_active_session
-from src.utils.market_calendar import is_market_open
-
-def main() -> int:
-    if not is_market_open():
-        return 0
-    cfg = load_config()
-    db = Database(cfg.database.url)
-    with db.get_session() as s:
-        if not get_active_session(s):
-            # heartbeat routine will alert; stay silent here to avoid spam
-            return 0
-    # import Engine lazily — cold-start cost matters for 5-min cadence
-    from src.main import Engine
-    engine = Engine(cfg, db)
-    engine.run_scan_only()  # to be added: the scan half of run_once()
-    return 0
+# routines/impl/signal_scan.py  (HTTPS-only, no SQLAlchemy)
+python -m routines.impl.signal_scan
 ```
-
-Requires extracting the scan half of `Engine.run_once` into a dedicated
-`run_scan_only()` method that does NOT execute orders.
