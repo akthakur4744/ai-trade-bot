@@ -8,6 +8,14 @@
 //      Header X-Heartbeat-Token must equal env.HEARTBEAT_TOKEN.
 //      Exists because the cloud Routine sandbox cannot reach Supabase on port 6543
 //      (HTTPS-only egress); this proxies the read over 443 via Supabase REST API.
+//
+// GET /memory/sweep?mode=paper|live
+//   -> query expired pending_memory_updates rows (no mutation).
+//      Returns { expired: [{id, telegram_message_id, title}] }.
+//
+// POST /memory/sweep?mode=paper|live  body: { "ids": [...] }
+//   -> mark listed pending_memory_updates rows as status='expired'.
+//      Returns { ok: true, count: N }.
 
 const OK_HTML = `<!doctype html><html><body style="font-family:system-ui;padding:2rem">
 <h1>✅ Logged in</h1><p>You can close this tab. Insight-Alpha will pick up the session.</p>
@@ -85,6 +93,22 @@ function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
+// Shared auth check — returns a Response on failure, null on success.
+function authenticateRequest(request, env) {
+  if (!env.HEARTBEAT_TOKEN) return new Response("Not configured", { status: 503 });
+  const provided = request.headers.get("x-heartbeat-token") || "";
+  if (!timingSafeEqual(provided, env.HEARTBEAT_TOKEN)) return new Response("Forbidden", { status: 403 });
+  return null;
+}
+
+// Returns [supabaseUrl, serviceKey] based on ?mode=paper|live, or [null, null].
+function getSupabaseCredentials(url, env) {
+  const mode = url.searchParams.get("mode");
+  if (mode === "live")  return [env.SUPABASE_URL_LIVE,  env.SUPABASE_KEY_LIVE];
+  if (mode === "paper") return [env.SUPABASE_URL_PAPER, env.SUPABASE_KEY_PAPER];
+  return [null, null];
+}
+
 const HEARTBEAT_KEYS = [
   "last_signal_scan_ts",
   "last_telegram_poll_ts",
@@ -134,18 +158,9 @@ async function handleKiteCallback(url, env) {
 }
 
 async function handleHeartbeatState(request, url, env) {
-  if (!env.HEARTBEAT_TOKEN) return new Response("Not configured", { status: 503 });
-  const provided = request.headers.get("x-heartbeat-token") || "";
-  if (!timingSafeEqual(provided, env.HEARTBEAT_TOKEN)) {
-    return new Response("Forbidden", { status: 403 });
-  }
-  const mode = url.searchParams.get("mode");
-  const [supabaseUrl, serviceKey] =
-    mode === "live"
-      ? [env.SUPABASE_URL_LIVE, env.SUPABASE_KEY_LIVE]
-      : mode === "paper"
-      ? [env.SUPABASE_URL_PAPER, env.SUPABASE_KEY_PAPER]
-      : [null, null];
+  const authErr = authenticateRequest(request, env);
+  if (authErr) return authErr;
+  const [supabaseUrl, serviceKey] = getSupabaseCredentials(url, env);
   if (!supabaseUrl) return new Response("mode must be paper|live", { status: 400 });
   try {
     const state = await readHeartbeatState(supabaseUrl, serviceKey);
@@ -160,6 +175,62 @@ async function handleHeartbeatState(request, url, env) {
   }
 }
 
+async function handleMemorySweepGet(request, url, env) {
+  const authErr = authenticateRequest(request, env);
+  if (authErr) return authErr;
+  const [supabaseUrl, serviceKey] = getSupabaseCredentials(url, env);
+  if (!supabaseUrl) return new Response("mode must be paper|live", { status: 400 });
+
+  const now = new Date().toISOString();
+  try {
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/pending_memory_updates` +
+      `?status=eq.pending&expires_at=lt.${encodeURIComponent(now)}` +
+      `&select=id,telegram_message_id,title`,
+      { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
+    );
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    const rows = await res.json();
+    return new Response(JSON.stringify({ expired: rows }),
+      { headers: { "Content-Type": "application/json" } });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }),
+      { status: 502, headers: { "Content-Type": "application/json" } });
+  }
+}
+
+async function handleMemorySweepPost(request, url, env) {
+  const authErr = authenticateRequest(request, env);
+  if (authErr) return authErr;
+  const [supabaseUrl, serviceKey] = getSupabaseCredentials(url, env);
+  if (!supabaseUrl) return new Response("mode must be paper|live", { status: 400 });
+
+  const { ids } = await request.json();
+  if (!Array.isArray(ids) || ids.length === 0)
+    return new Response(JSON.stringify({ ok: true, count: 0 }),
+      { headers: { "Content-Type": "application/json" } });
+
+  try {
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/pending_memory_updates?id=in.(${ids.join(",")})`,
+      {
+        method: "PATCH",
+        headers: {
+          apikey: serviceKey, Authorization: `Bearer ${serviceKey}`,
+          "Content-Type": "application/json", Prefer: "return=minimal",
+        },
+        body: JSON.stringify({ status: "expired" }),
+      }
+    );
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    return new Response(JSON.stringify({ ok: true, count: ids.length }),
+      { headers: { "Content-Type": "application/json" } });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }),
+      { status: 502, headers: { "Content-Type": "application/json" } });
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -169,6 +240,8 @@ export default {
     if (request.method === "GET" && url.pathname === "/heartbeat/state") {
       return handleHeartbeatState(request, url, env);
     }
+    if (request.method === "GET"  && url.pathname === "/memory/sweep") return handleMemorySweepGet(request, url, env);
+    if (request.method === "POST" && url.pathname === "/memory/sweep") return handleMemorySweepPost(request, url, env);
     return new Response("Not found", { status: 404 });
   },
 };

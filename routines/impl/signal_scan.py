@@ -1,40 +1,46 @@
 """Cloud Routine entrypoint: signal scan.
 
-Runs one full `TradingEngine.run_cycle()`. Because the engine operates in
-approval mode, no orders are placed — qualifying signals are written to
-`pending_signal_state` and posted to Telegram with inline buttons.
+Session check via Cloudflare Worker proxy (HTTPS). Scan delegated to the
+Fly.io worker trigger API which runs engine.run_cycle() with full DB access.
+Returns 200 immediately (async); heartbeat written by the Fly.io side.
 """
 from __future__ import annotations
 
+import os
 import sys
 from datetime import datetime, timezone
 
+import httpx
 import structlog
-from sqlalchemy.exc import OperationalError
 
-from src.config import load_config
-from src.data.kite_session import get_active_session
-from src.storage.database import Database
-from src.storage.models import AppState
 from src.utils.market_calendar import is_market_open
 
 logger = structlog.get_logger(__name__)
 
-HEARTBEAT_KEY = "last_signal_scan_ts"
+_HTTP_TIMEOUT_SEC = 30.0   # /trigger/scan returns immediately (async endpoint)
 
 
-def _heartbeat(db) -> None:
+def _is_session_active(url: str, token: str, mode: str) -> bool:
     try:
-        with db.get_session() as s:
-            row = s.query(AppState).filter_by(key=HEARTBEAT_KEY).first()
-            now = datetime.now(timezone.utc).isoformat()
-            if row:
-                row.value = now
-            else:
-                s.add(AppState(key=HEARTBEAT_KEY, value=now))
-            s.commit()
-    except OperationalError as exc:
-        logger.warning("signal_scan_heartbeat_failed", error=str(exc).split("\n")[0])
+        resp = httpx.get(url, params={"mode": mode},
+                         headers={"X-Heartbeat-Token": token}, timeout=_HTTP_TIMEOUT_SEC)
+        resp.raise_for_status()
+        state = resp.json()
+    except Exception as e:
+        logger.warning("session_check_failed", error=str(e))
+        return False
+    if not state.get("kite_access_token_present"):
+        return False
+    exp_raw = state.get("kite_session_expires_at")
+    if not exp_raw:
+        return False
+    try:
+        exp = datetime.fromisoformat(exp_raw)
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    return datetime.now(timezone.utc) < exp
 
 
 def main() -> int:
@@ -42,33 +48,34 @@ def main() -> int:
         logger.info("market_closed_skip")
         return 0
 
-    cfg = load_config()
-    db = Database(cfg.database.url)
+    url           = os.environ.get("HEARTBEAT_STATE_URL")
+    token         = os.environ.get("HEARTBEAT_TOKEN")
+    mode          = os.environ.get("EXECUTION_MODE", "paper")
+    fly_url       = os.environ.get("FLY_WORKER_URL")
+    trigger_token = os.environ.get("TRIGGER_API_TOKEN")
 
-    try:
-        with db.get_session() as s:
-            if not get_active_session(s):
-                # heartbeat routine owns user-facing alert; stay silent here
-                logger.warning("kite_session_stale_skip")
-                return 0
-    except OperationalError as exc:
-        logger.warning("db_unreachable_skip", error=str(exc).split("\n")[0])
+    if not all([url, token, fly_url, trigger_token]):
+        logger.error("signal_scan_misconfigured",
+                     have_state_url=bool(url), have_token=bool(token),
+                     have_fly_url=bool(fly_url), have_trigger_token=bool(trigger_token))
+        return 1
+
+    if not _is_session_active(url, token, mode):
+        logger.warning("kite_session_stale_skip")
         return 0
 
-    # Import lazily to keep cold-start light on market-closed / no-session exits.
-    from src.main import TradingEngine
-
-    engine = TradingEngine(cfg)
     try:
-        engine.run_cycle()
-    finally:
-        # Stop the callback polling thread the engine starts in __init__
-        try:
-            engine._telegram.stop_callback_polling()
-        except Exception:
-            pass
+        resp = httpx.post(
+            f"{fly_url}/trigger/scan",
+            headers={"X-Trigger-Token": trigger_token},
+            timeout=_HTTP_TIMEOUT_SEC,
+        )
+        resp.raise_for_status()
+        logger.info("scan_triggered", response=resp.json())
+    except Exception as e:
+        logger.error("scan_trigger_failed", error=str(e))
+        return 1
 
-    _heartbeat(db)
     return 0
 
 
