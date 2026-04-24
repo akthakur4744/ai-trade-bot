@@ -10,48 +10,29 @@ minutes. On expiry:
 - Edit the original Telegram message to "⏱ Expired".
 - If a GitHub PR was already opened (shouldn't be, but defensive): close it.
 
-## Behavior
+## Behavior (HTTPS-only — two-step via CF Worker)
 
-```sql
-UPDATE pending_memory_updates
-   SET status = 'expired'
- WHERE status = 'pending' AND expires_at < now()
-RETURNING id, telegram_message_id;
-```
+Two-step to avoid Telegram/DB divergence if a Telegram edit fails mid-batch:
 
-For each returned row, call
-`TelegramNotifier.update_memory_message(msg_id, "expired")`.
+1. `GET $CF_BASE/memory/sweep?mode=<mode>` — fetch expired rows (no DB mutation yet). Returns `{ expired: [{id, telegram_message_id, title}] }`.
+2. For each row: call `TelegramNotifier.update_memory_message(msg_id, "expired")` (HTTPS to Telegram ✓).
+3. `POST $CF_BASE/memory/sweep?mode=<mode>` body `{"ids":[...]}` — mark rows as `status='expired'` in Supabase.
+
+No SQLAlchemy, no direct Postgres connection from CCR.
+
+## Required env vars
+
+| Var | Purpose |
+|-----|---------|
+| `HEARTBEAT_STATE_URL` | CF Worker URL (base derived by stripping `/heartbeat/state`) |
+| `HEARTBEAT_TOKEN` | Auth token for CF Worker |
+| `EXECUTION_MODE` | `paper` or `live` |
+| `TELEGRAM_BOT_TOKEN` | Bot token for editing messages |
+| `TELEGRAM_CHAT_ID` | Chat ID |
 
 ## Entrypoint
 
 ```python
-# routines/impl/memory_approval_sweeper.py
-from datetime import datetime, timezone
-from src.config import load_config
-from src.storage.database import Database
-from src.storage.models import PendingMemoryUpdate
-from src.notifications.telegram import TelegramNotifier
-import os
-
-def main() -> int:
-    cfg = load_config()
-    db = Database(cfg.database.url)
-    tg = TelegramNotifier(
-        bot_token=os.environ["TELEGRAM_BOT_TOKEN"],
-        chat_id=os.environ["TELEGRAM_CHAT_ID"],
-    )
-    now = datetime.now(timezone.utc)
-    with db.get_session() as s:
-        expired = (
-            s.query(PendingMemoryUpdate)
-            .filter(PendingMemoryUpdate.status == "pending")
-            .filter(PendingMemoryUpdate.expires_at < now)
-            .all()
-        )
-        for row in expired:
-            row.status = "expired"
-            if row.telegram_message_id:
-                tg.update_memory_message(row.telegram_message_id, "expired")
-        s.commit()
-    return 0
+# routines/impl/memory_approval_sweeper.py  (HTTPS-only, no SQLAlchemy)
+python -m routines.impl.memory_approval_sweeper
 ```
