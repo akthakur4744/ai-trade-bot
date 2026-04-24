@@ -20,6 +20,7 @@ primary_region = "bom"
   force_https   = true
   auto_stop_machines  = false   # must stay running for 60s auto-sell loop
   auto_start_machines = false
+  processes             = ["app"]
 
 [deploy]
   strategy = "immediate"
