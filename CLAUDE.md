@@ -37,7 +37,7 @@ Data Pipeline -> Indicators -> Strategies -> AI Agents -> Scoring -> Filtering -
 - `config/` — YAML configs (default.yaml, paper.yaml, live.yaml, strategies/, watchlist.yaml, extended_universe.yaml)
 - `src/data/` — Kite client, market data, WebSocket, news, macro, fundamentals, **universe_selector** (dynamic stock scoring)
 - `src/indicators/` — Technical indicators as pure functions (RSI, EMA, ATR, MACD, etc.)
-- `src/strategies/` — 8 strategies extending abstract `Strategy` base class
+- `src/strategies/` — 8 strategies extending abstract `Strategy` base class (5 active: MeanReversion, Momentum, BollingerSqueeze, GoldenCross, VWAPReversion; 3 disabled: Seasonal, FundamentalTechnical, PairsTrading)
 - `src/agents/` — Claude-powered agents (Researcher, Sentinel, Orchestrator, Stitch)
 - `src/scoring/` — Alpha model, filters, ranking, sentiment decay
 - `src/regime/` — HMM-based market regime detection
