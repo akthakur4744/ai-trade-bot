@@ -475,7 +475,7 @@ class TradingEngine:
 
             # Send Telegram cycle report
             self._send_cycle_report(
-                macro, researcher_output, scored_signals, final_signals, news_items
+                macro, researcher_output, scored_signals, passing_signals, final_signals, filtered_reasons, news_items
             )
 
         except Exception as e:
@@ -1179,7 +1179,9 @@ class TradingEngine:
         macro: Any,
         researcher_output: Dict[str, Any],
         scored_signals: list,
+        passing_signals: list,
         final_signals: list,
+        filtered_reasons: list,
         news_items: list,
     ) -> None:
         """Send a comprehensive cycle report to Telegram."""
@@ -1234,17 +1236,26 @@ class TradingEngine:
         # Signals summary
         lines.append("")
         if scored_signals:
-            lines.append(f"\U0001f3af Signals: {len(scored_signals)} scored")
-            for sig in scored_signals[:3]:
-                direction = "\U0001f7e2" if sig.direction.value == "BUY" else "\U0001f534"
-                lines.append(
-                    f"  {direction} {sig.symbol} ({sig.strategy_name}) \u2014 "
-                    f"conf: {sig.confidence:.0%}, score: {sig.final_score:.2f}"
-                )
-                if sig.summary:
-                    lines.append(f"     {sig.summary[:80]}")
+            lines.append(f"\U0001f3af Signals: {len(scored_signals)} scored, {len(passing_signals)} passed filters")
+            if passing_signals:
+                for sig in passing_signals[:3]:
+                    direction = "\U0001f7e2" if sig.direction.value == "BUY" else "\U0001f534"
+                    lines.append(
+                        f"  {direction} {sig.symbol} ({sig.strategy_name}) \u2014 "
+                        f"conf: {sig.confidence:.0%}, score: {sig.final_score:.2f}"
+                    )
+                    if sig.summary:
+                        lines.append(f"     {sig.summary[:80]}")
+            if filtered_reasons:
+                lines.append("")
+                lines.append("\u274c Filtered out:")
+                for item in filtered_reasons[:3]:
+                    sym = item.get("symbol", "?")
+                    reasons = item.get("reasons", [])
+                    reason_str = "; ".join(reasons[:2]) if reasons else "unknown reason"
+                    lines.append(f"  \u274c {sym}: {reason_str}")
         else:
-            lines.append("\U0001f3af No actionable signals this cycle")
+            lines.append("\U0001f3af No signals scored this cycle")
 
         if final_signals:
             lines.append("")
