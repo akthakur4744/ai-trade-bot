@@ -1011,19 +1011,34 @@ class TradingEngine:
 
     def _scan_all_strategies(self):
         """Run all enabled strategies across the watchlist."""
-        from src.models import StrategySignal
+        from src.indicators.volume import compute_volume_ratio
 
-        signals: List[StrategySignal] = []
+        signals = []
 
         for symbol in self._watchlist:
             data = self._fetch_symbol_data(symbol)
             if not data:
                 continue
 
+            # Compute liquidity score once per symbol from daily candles so
+            # strategies that don't set it get a sensible value. Formula mirrors
+            # vwap_reversion: volume_ratio / 1.5, capped at 1.0.
+            liquidity_score = 0.0
+            df_day = data.get("day")
+            if df_day is not None and len(df_day) >= 20:
+                try:
+                    ratio = compute_volume_ratio(df_day).iloc[-1]
+                    if ratio == ratio:  # guard NaN
+                        liquidity_score = min(1.0, float(ratio) / 1.5)
+                except Exception:
+                    pass
+
             for strategy in self._strategies:
                 try:
                     signal = strategy.scan(symbol, data, {})
                     if signal is not None:
+                        if signal.confidence_inputs.liquidity_score == 0.0:
+                            signal.confidence_inputs.liquidity_score = round(liquidity_score, 4)
                         signals.append(signal)
                 except Exception as e:
                     logger.warning(
