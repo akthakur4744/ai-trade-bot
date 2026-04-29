@@ -58,17 +58,36 @@ function expiresAtIso() {
 }
 
 async function supabaseUpsert(supabaseUrl, serviceKey, key, value) {
-  const res = await fetch(`${supabaseUrl}/rest/v1/app_state`, {
-    method: "POST",
-    headers: {
-      "apikey": serviceKey,
-      "Authorization": `Bearer ${serviceKey}`,
-      "Content-Type": "application/json",
-      "Prefer": "resolution=merge-duplicates",
-    },
-    body: JSON.stringify({ key, value, updated_at: new Date().toISOString() }),
-  });
-  if (!res.ok) throw new Error(`supabase upsert failed: ${res.status} ${await res.text()}`);
+  const res = await fetch(
+    `${supabaseUrl}/rest/v1/app_state?key=eq.${encodeURIComponent(key)}`,
+    {
+      method: "PATCH",
+      headers: {
+        "apikey": serviceKey,
+        "Authorization": `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ key, value, updated_at: new Date().toISOString() }),
+    }
+  );
+  if (!res.ok) {
+    // If PATCH returns 0 rows updated (404-ish), do an INSERT instead
+    if (res.status === 404 || res.headers.get("content-range") === "*/0") {
+      const insertRes = await fetch(`${supabaseUrl}/rest/v1/app_state`, {
+        method: "POST",
+        headers: {
+          "apikey": serviceKey,
+          "Authorization": `Bearer ${serviceKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ key, value, updated_at: new Date().toISOString() }),
+      });
+      if (!insertRes.ok)
+        throw new Error(`supabase insert failed: ${insertRes.status} ${await insertRes.text()}`);
+    } else {
+      throw new Error(`supabase upsert failed: ${res.status} ${await res.text()}`);
+    }
+  }
 }
 
 async function writeToken(supabaseUrl, serviceKey, accessToken, expiresAtIsoStr) {
