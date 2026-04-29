@@ -21,6 +21,7 @@ Data Pipeline -> Indicators -> Strategies -> AI Agents -> Scoring -> Filtering -
 - **Approval-based execution:** Signals queue → user approves via Telegram inline buttons or dashboard
 - **Auto-Sell:** AI-defined exit triggers (stop, target, trailing stop, time, confidence decay, structure break) — no human after enabling
 - **GTT Exchange Protection:** Zerodha GTT OCO = exchange-level stop+target, survives crashes. App handles trailing stop, time, confidence, structure break via software.
+- **Hybrid Stock Universe:** 30 static core stocks (always scanned) + 20 dynamically-selected stocks (scored from a ~105-candidate extended pool once per trading day). Dynamic 20 selected by: RSI extreme (40%), volume spike (30%), ADX trend (20%), EMA alignment (10%); regime sector boost (+0.08); max 5 per sector.
 
 ## Tech Stack
 
@@ -33,8 +34,8 @@ Data Pipeline -> Indicators -> Strategies -> AI Agents -> Scoring -> Filtering -
 
 ## Project Structure
 
-- `config/` — YAML configs (default.yaml, paper.yaml, live.yaml, strategies/, watchlist.yaml)
-- `src/data/` — Kite client, market data, WebSocket, news, macro, fundamentals
+- `config/` — YAML configs (default.yaml, paper.yaml, live.yaml, strategies/, watchlist.yaml, extended_universe.yaml)
+- `src/data/` — Kite client, market data, WebSocket, news, macro, fundamentals, **universe_selector** (dynamic stock scoring)
 - `src/indicators/` — Technical indicators as pure functions (RSI, EMA, ATR, MACD, etc.)
 - `src/strategies/` — 8 strategies extending abstract `Strategy` base class
 - `src/agents/` — Claude-powered agents (Researcher, Sentinel, Orchestrator, Stitch)

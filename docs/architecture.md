@@ -146,7 +146,7 @@ Insight-Alpha is a multi-agent AI trading system for Indian equity markets. It c
 
 | Directory | Responsibility |
 |-----------|---------------|
-| `src/data/` | Kite Connect client, OHLCV fetcher, WebSocket, news/macro/fundamentals |
+| `src/data/` | Kite Connect client, OHLCV fetcher, WebSocket, news/macro/fundamentals, `universe_selector` (daily dynamic stock scoring) |
 | `src/indicators/` | Pure functions: RSI, EMA, ATR, MACD, Bollinger, VWAP, ADX, Stochastic |
 | `src/strategies/` | 8 strategy implementations extending `Strategy` ABC |
 | `src/agents/` | 4 Claude-powered agents: Researcher, Sentinel, Orchestrator, Stitch |
@@ -158,7 +158,7 @@ Insight-Alpha is a multi-agent AI trading system for Indian equity markets. It c
 | `src/web/` | FastAPI dashboard, Kite OAuth flow, engine control, approval workflow APIs |
 | `src/storage/` | SQLAlchemy ORM (9 tables + Alembic migrations), Supabase Postgres (paper/live DBs); SQLite retained as offline-dev fallback |
 | `src/feedback/` | PostmortemAgent, PostmortemPipeline, MemoryWriter (Telegram-gated), MemoryContext, WeeklyReviewAgent, FeedbackTracker, Reporter |
-| `config/` | YAML configs: default, paper, live, strategies/, watchlist.yaml |
+| `config/` | YAML configs: default, paper, live, strategies/, watchlist.yaml (30 core), extended_universe.yaml (105 dynamic candidates) |
 | `scripts/` | CLI tools: kite_auth.py (manual daily OAuth), kite_auto_login.py (local debug only — NOT automated login), backtest_cli.py |
 | `workers/` | Fly.io combined entrypoint (`main.py`): auto-sell tick daemon thread (60s) + FastAPI trigger API on port 8080 (`trigger_api.py`) |
 | `routines/` | Cloud Routine definitions: morning-login-prompt, signal-scan, telegram-poll, heartbeat, memory-approval-sweeper, etc. All routines make HTTPS-only calls — no direct DB access from signal-scan, telegram-poll, or memory-approval-sweeper |
@@ -226,7 +226,8 @@ Every 60s  — Fly.io auto-sell-tick worker: tick_auto_sell()
 Every hour — signal-scan Cloud Routine: run_cycle()
                → expire pending signals older than 15 min
                → fetch macro + news
-               → scan strategies across watchlist
+               → refresh dynamic universe (once/day: score 105 candidates → pick top 20)
+               → scan strategies across 30 core + 20 dynamic = 50 symbols
                → AI pipeline (Researcher → Sentinel → Orchestrator → Stitch)
                → filter + rank → risk check
                → queue signals for user approval (Telegram + Dashboard)
@@ -459,6 +460,8 @@ For the full database schema diagram, see [hld.md](hld.md).
 | Tool use for structured output | Eliminates JSON parse failures |
 | 4-agent debate pattern | Adversarial checking reduces false positives |
 | HMM regime detection | Filters strategy-regime mismatches (biggest alpha leak) |
+| Hybrid stock universe (30 core + 20 dynamic) | Keeps scan cost low while capturing high-setup midcaps; daily cache avoids 120× repeated API calls per day |
+| Dynamic universe scoring (RSI + volume + ADX + EMA) | Picks the 20 names with the most active technical setups; regime sector boost aligns selection with current market phase |
 | Sentiment decay (15%/30 min) | Prevents stale news from driving fresh entries |
 | Macro guard (cap at 0.6 in bear) | Protects against bull strategies in bear markets |
 | Approval-based execution | User stays in control, no surprise trades |

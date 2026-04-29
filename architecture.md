@@ -9,7 +9,9 @@ Data Sources (Kite, News, Macro)
     ↓
 Regime Detection (HMM — bull/bear/sideways/chop)
     ↓
-Strategies × 8 (scan → raw signals)
+Dynamic Universe Selection (once/day: score 105 candidates → pick top 20)
+    ↓
+Strategies × 8 (scan 30 core + 20 dynamic = 50 symbols → raw signals)
     ↓
 AI Agents (Researcher → Sentinel → Orchestrator → Stitch)
     ↓
@@ -30,7 +32,7 @@ Exit Notification (Telegram + Dashboard)
 
 | Directory | What It Does |
 |-----------|-------------|
-| `src/data/` | Kite client, OHLCV, WebSocket, news/macro/fundamentals |
+| `src/data/` | Kite client, OHLCV, WebSocket, news/macro/fundamentals, universe_selector (daily dynamic stock scoring) |
 | `src/indicators/` | Pure functions: RSI, EMA, ATR, MACD, Bollinger, VWAP, ADX |
 | `src/strategies/` | 8 strategy classes extending `Strategy` ABC |
 | `src/agents/` | 4 Claude agents: Researcher, Sentinel, Orchestrator, Stitch |
