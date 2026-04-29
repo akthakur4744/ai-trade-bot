@@ -383,7 +383,7 @@ class TradingEngine:
                 logger.info("cycle_no_signals")
                 self._emit("alert", {"message": "No strategy signals this cycle", "level": "info"})
                 self._check_exits(macro_dict)
-                self._send_cycle_report(macro, researcher_output, [], [], news_items)
+                self._send_cycle_report(macro, researcher_output, [], [], [], [], news_items)
                 return
 
             # 6. Run Sentinel
