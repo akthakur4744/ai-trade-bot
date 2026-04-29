@@ -25,7 +25,7 @@ import os
 import signal
 import sys
 import uuid
-from datetime import datetime, time as dtime
+from datetime import date, datetime, time as dtime
 from typing import Any, Dict, List, Optional
 
 import structlog
@@ -192,10 +192,16 @@ class TradingEngine:
         # Instrument token cache
         self._instrument_tokens: Dict[str, int] = {}
 
+        # Hybrid universe: dynamic supplement (20 stocks selected daily)
+        self._dynamic_watchlist: List[str] = []
+        self._dynamic_universe_cache_date: Optional[date] = None
+        self._extended_candidates: List[Dict[str, str]] = self._load_extended_candidates()
+
         logger.info(
             "engine_initialized",
             mode=config.execution.mode,
             watchlist_size=len(self._watchlist),
+            extended_candidates=len(self._extended_candidates),
             strategies=len(self._strategies),
         )
 
@@ -1010,12 +1016,19 @@ class TradingEngine:
     # ---- Existing Methods ----
 
     def _scan_all_strategies(self):
-        """Run all enabled strategies across the watchlist."""
+        """Run all enabled strategies across the core + dynamic watchlist."""
         from src.indicators.volume import compute_volume_ratio
+
+        # Refresh dynamic 20 once per trading day (no-op if already done today)
+        self._refresh_dynamic_universe()
+
+        combined = list(self._watchlist) + [
+            s for s in self._dynamic_watchlist if s not in set(self._watchlist)
+        ]
 
         signals = []
 
-        for symbol in self._watchlist:
+        for symbol in combined:
             data = self._fetch_symbol_data(symbol)
             if not data:
                 continue
@@ -1048,7 +1061,13 @@ class TradingEngine:
                         error=str(e),
                     )
 
-        logger.info("scan_complete", signals=len(signals), symbols=len(self._watchlist))
+        logger.info(
+            "scan_complete",
+            signals=len(signals),
+            core_symbols=len(self._watchlist),
+            dynamic_symbols=len(self._dynamic_watchlist),
+            total_symbols=len(combined),
+        )
         return signals
 
     def _fetch_symbol_data(self, symbol: str) -> Dict[str, Any]:
@@ -1349,21 +1368,74 @@ class TradingEngine:
         }
 
     def load_instruments(self) -> None:
-        """Load Kite instrument tokens for the watchlist."""
+        """Load Kite instrument tokens for the core watchlist and extended universe."""
         from src.data.kite_client import get_instruments
         try:
             symbol_to_token = get_instruments(self._kite_client.kite, exchange="NSE")
+
+            # Core watchlist tokens
             for symbol in self._watchlist:
                 token = symbol_to_token.get(symbol)
                 if token is not None:
                     self._instrument_tokens[symbol] = token
+
+            # Extended universe tokens (needed for daily scoring)
+            extended_loaded = 0
+            for candidate in self._extended_candidates:
+                symbol = candidate.get("symbol", "")
+                if symbol and symbol not in self._instrument_tokens:
+                    token = symbol_to_token.get(symbol)
+                    if token is not None:
+                        self._instrument_tokens[symbol] = token
+                        extended_loaded += 1
+
             logger.info(
                 "instruments_loaded",
-                count=len(self._instrument_tokens),
+                core=len(self._watchlist),
+                extended=extended_loaded,
                 missing=[s for s in self._watchlist if s not in self._instrument_tokens],
             )
         except Exception as e:
             logger.error("instruments_load_error", error=str(e))
+
+    @staticmethod
+    def _load_extended_candidates() -> List[Dict[str, str]]:
+        """Load extended universe symbols from config/extended_universe.yaml."""
+        import yaml
+        from pathlib import Path
+        eu_path = Path(__file__).parents[1] / "config" / "extended_universe.yaml"
+        if not eu_path.exists():
+            return []
+        try:
+            with open(eu_path) as f:
+                data = yaml.safe_load(f) or {}
+            return data.get("symbols", [])
+        except Exception as e:
+            logger.warning("extended_universe_load_error", error=str(e))
+            return []
+
+    def _refresh_dynamic_universe(self) -> None:
+        """Select the dynamic 20 from the extended universe (once per trading day)."""
+        from src.data.universe_selector import select_dynamic_universe
+        today = datetime.utcnow().date()
+        if self._dynamic_universe_cache_date == today:
+            return  # already computed today
+
+        self._dynamic_watchlist = select_dynamic_universe(
+            instrument_tokens=self._instrument_tokens,
+            extended_candidates=self._extended_candidates,
+            core_symbols=self._watchlist,
+            market_data_fetcher=self._market_data,
+            config_data=self._config.data,
+            regime=self._current_regime,
+            n=20,
+        )
+        self._dynamic_universe_cache_date = today
+        logger.info(
+            "dynamic_universe_refreshed",
+            date=str(today),
+            symbols=self._dynamic_watchlist,
+        )
 
     def shutdown(self) -> None:
         """Clean shutdown — stop Telegram polling, deactivate auto-sell."""

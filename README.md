@@ -129,9 +129,14 @@ All configuration is in `config/`:
 - `paper.yaml` — Paper trading overrides
 - `live.yaml` — Live trading overrides (stricter risk limits)
 - `strategies/` — Per-strategy parameters
-- `watchlist.yaml` — Stock universe
+- `watchlist.yaml` — 30 core stocks (always scanned every cycle)
+- `extended_universe.yaml` — ~105 NSE candidates scored daily to pick the dynamic 20
 
 Switch between paper and live via `execution.mode` in config.
+
+### Hybrid Stock Universe
+
+Each scan cycle covers **50 stocks** — 30 static core names plus 20 that are scored fresh each trading day from a 105-candidate extended pool. Dynamic selection uses: RSI extreme (40%), volume spike (30%), ADX trend strength (20%), EMA alignment (10%). A regime-based sector boost (+0.08) and a 5-stock-per-sector cap enforce diversification. The selection is cached for the day; extended universe tokens are pre-fetched once at startup so no extra auth round-trips occur during market hours.
 
 ## Risk Guardrails
 

@@ -140,7 +140,9 @@ Data Sources (Kite, News, Macro)
     ↓
 Regime Detection (HMM — bull/bear/sideways/choppy)
     ↓
-Strategies x 8 (scan → raw StrategySignal[])
+Dynamic Universe Selection (once/day: score 105 candidates → pick top 20)
+    ↓
+Strategies x 8 (scan 30 core + 20 dynamic = 50 symbols → raw StrategySignal[])
     ↓
 AI Agents (Researcher → Sentinel → Orchestrator → Stitch)
     ↓
@@ -183,13 +185,14 @@ Each `run_cycle()` execution:
 4. Update market regime (HMM)
 5. Fetch news headlines
 6. Run Researcher agent on news
-7. Scan all strategies across watchlist
-8. Run Sentinel agent (risk assessment)
-9. Score via Orchestrator agent
-10. Filter (confidence, liquidity, risk checks)
-11. Stitch (consensus, dedup, rank)
-12. Queue top signals for user approval
-13. Check exits on manually-managed positions
+7. Refresh dynamic universe if first cycle of the day (score 105 candidates → pick top 20; cached for rest of day)
+8. Scan all 8 strategies across 30 core + 20 dynamic = 50 symbols
+9. Run Sentinel agent (risk assessment)
+10. Score via Orchestrator agent
+11. Filter (confidence, liquidity, risk checks)
+12. Stitch (consensus, dedup, rank)
+13. Queue top signals for user approval
+14. Check exits on manually-managed positions
 
 ---
 
@@ -197,7 +200,7 @@ Each `run_cycle()` execution:
 
 | Directory | Responsibility | Key Classes |
 |-----------|---------------|-------------|
-| `src/data/` | Market data ingestion | `KiteClient`, `MarketDataFetcher`, `NewsFeed`, `MacroDataFetcher` |
+| `src/data/` | Market data ingestion + dynamic universe scoring | `KiteClient`, `MarketDataFetcher`, `NewsFeed`, `MacroDataFetcher`, `select_dynamic_universe()` |
 | `src/indicators/` | Technical indicators (pure functions) | `compute_rsi()`, `compute_ema()`, `compute_atr()`, etc. |
 | `src/strategies/` | 8 strategy implementations | `MeanReversion`, `Momentum`, `BollingerSqueeze`, `GoldenCross`, `VWAPReversion`, `Seasonal` |
 | `src/agents/` | 4 Claude-powered AI agents | `ResearcherAgent`, `SentinelAgent`, `OrchestratorAgent`, `StitchAgent` |
@@ -525,11 +528,12 @@ All configuration is in `config/` using YAML with Pydantic validation:
 
 ```
 config/
-├── default.yaml        # Base parameters for all components
-├── paper.yaml          # Paper mode overrides
-├── live.yaml           # Live mode overrides (stricter limits)
-├── watchlist.yaml      # Stock universe with sectors
-└── strategies/         # Per-strategy parameter files
+├── default.yaml             # Base parameters for all components
+├── paper.yaml               # Paper mode overrides
+├── live.yaml                # Live mode overrides (stricter limits)
+├── watchlist.yaml           # 30 core stocks — always scanned every cycle
+├── extended_universe.yaml   # ~105 NSE candidates — scored daily, top 20 selected dynamically
+└── strategies/              # Per-strategy parameter files
 ```
 
 Key configuration areas:
@@ -539,6 +543,32 @@ Key configuration areas:
 - `market.*` — timezone, open/close times, scan interval
 - `agents.*` — model selection, temperature, retry config
 - `database.url` — SQLite path (paper) or PostgreSQL URL (live)
+
+---
+
+## 14. Hybrid Stock Universe
+
+Each scan cycle covers **50 symbols**: 30 static core names (highest-liquidity Nifty 50 subset, defined in `watchlist.yaml`) plus 20 dynamically-selected stocks (scored fresh once per trading day from a ~105-candidate extended pool in `extended_universe.yaml`).
+
+### Dynamic Selection Scoring (`src/data/universe_selector.py`)
+
+| Component | Weight | Formula |
+|-----------|--------|---------|
+| RSI extreme | 40% | `abs(rsi - 50) / 20` — extremes signal high-probability reversal/continuation setups |
+| Volume spike | 30% | `min(1, vol_ratio / 2)` — 2× 20-day average volume = maximum score |
+| ADX trend strength | 20% | `(adx - 15) / 25` clamped 0–1 — ADX 15→0, ADX 40→1 |
+| EMA alignment | 10% | Bullish (short>medium>long)=1, mixed=0.5, bearish=0 |
+
+**Regime sector boost:** +0.08 added to score for stocks in sectors favoured by the current `MarketRegime`:
+- BULL → IT, Banking, Finance, Auto, Infrastructure
+- BEAR → Pharma, Healthcare, FMCG, Power, Energy
+- RANGE_BOUND → FMCG, Pharma, Consumer, Healthcare
+
+**Sector cap:** maximum 5 stocks per sector in the dynamic 20 to enforce diversification.
+
+### Caching
+
+The dynamic 20 is computed once on the first scan cycle of each trading day and reused for all subsequent cycles that day. Extended universe instrument tokens are pre-fetched alongside core tokens in `load_instruments()` so no extra Kite API calls are needed at scan time.
 
 ---
 
@@ -596,6 +626,8 @@ See `cloudflare-worker/README.md`, `routines/README.md`, and `workers/README.md`
 | Decision | Rationale |
 |----------|-----------|
 | Deterministic alpha scoring | Reproducible, debuggable, backtestable |
+| Hybrid stock universe (30 core + 20 dynamic) | Captures high-setup midcap opportunities without scanning 500+ symbols; daily cache keeps API cost at ~120 calls/day instead of 3,100+ |
+| Dynamic selection inside scan loop | Single daily compute per first cycle; no separate scheduled routine; regime-aware sector tilts align opportunity discovery with market phase |
 | Claude for unstructured data only | Avoids LLM inconsistency in numerical scoring |
 | 4-agent debate pattern | Adversarial checking reduces false positives |
 | Approval-based execution | User stays in control, no surprise trades |
