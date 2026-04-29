@@ -1145,16 +1145,25 @@ class TradingEngine:
                     self._order_manager.close_position(symbol, exit_signal.reason)
 
     def _update_regime(self) -> None:
-        """Update market regime from recent Nifty data."""
-        if not self._regime_detector.is_trained:
-            return
+        """Update market regime from recent Nifty data.
+
+        Trains the HMM on first call (needs ≥100 daily bars), then predicts
+        on every subsequent call. Silently skips if Nifty token is unavailable.
+        """
         try:
             nifty_token = self._instrument_tokens.get("NIFTY 50")
-            if nifty_token:
-                nifty_daily = self._market_data.get_historical_data(
-                    instrument_token=nifty_token, interval="day", lookback_days=365
-                )
-                self._current_regime = self._regime_detector.predict(nifty_daily)
+            if not nifty_token:
+                return
+            nifty_daily = self._market_data.get_historical_data(
+                instrument_token=nifty_token, interval="day", lookback_days=365
+            )
+            if nifty_daily is None or len(nifty_daily) == 0:
+                return
+            if not self._regime_detector.is_trained:
+                trained = self._regime_detector.train(nifty_daily)
+                if not trained:
+                    return
+            self._current_regime = self._regime_detector.predict(nifty_daily)
         except Exception as e:
             logger.warning("regime_update_error", error=str(e))
 

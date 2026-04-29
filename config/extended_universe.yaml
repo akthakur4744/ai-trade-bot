@@ -22,21 +22,21 @@ symbols:
   - {symbol: "MUTHOOTFIN", sector: "Finance"}
   - {symbol: "CHOLAFIN", sector: "Finance"}
   - {symbol: "MANAPPURAM", sector: "Finance"}
-  - {symbol: "LICHOUSING", sector: "Finance"}
+  - {symbol: "LICHSGFIN", sector: "Finance"}
   - {symbol: "M&MFIN", sector: "Finance"}
   - {symbol: "POONAWALLA", sector: "Finance"}
   - {symbol: "IIFL", sector: "Finance"}
 
   # IT / Technology
   - {symbol: "MPHASIS", sector: "IT"}
-  - {symbol: "LTIM", sector: "IT"}
+  - {symbol: "CYIENT", sector: "IT"}
   - {symbol: "PERSISTENT", sector: "IT"}
   - {symbol: "COFORGE", sector: "IT"}
   - {symbol: "LTTS", sector: "IT"}
   - {symbol: "OFSS", sector: "IT"}
   - {symbol: "KPITTECH", sector: "IT"}
   - {symbol: "TANLA", sector: "IT"}
-  - {symbol: "ZOMATO", sector: "IT"}
+  - {symbol: "DIXON", sector: "IT"}
   - {symbol: "NAUKRI", sector: "IT"}
 
   # Auto & Auto-Ancillary
@@ -45,7 +45,7 @@ symbols:
   - {symbol: "EICHERMOT", sector: "Auto"}
   - {symbol: "TVSMOTOR", sector: "Auto"}
   - {symbol: "MOTHERSON", sector: "Auto"}
-  - {symbol: "BOSCH", sector: "Auto"}
+  - {symbol: "BOSCHLTD", sector: "Auto"}
   - {symbol: "MRF", sector: "Auto"}
   - {symbol: "APOLLOTYRE", sector: "Auto"}
   - {symbol: "BALKRISIND", sector: "Auto"}
@@ -59,7 +59,7 @@ symbols:
   - {symbol: "TORNTPHARM", sector: "Pharma"}
   - {symbol: "ALKEM", sector: "Pharma"}
   - {symbol: "BIOCON", sector: "Pharma"}
-  - {symbol: "IPCA", sector: "Pharma"}
+  - {symbol: "IPCALAB", sector: "Pharma"}
   - {symbol: "APOLLOHOSP", sector: "Healthcare"}
   - {symbol: "FORTIS", sector: "Healthcare"}
   - {symbol: "MAXHEALTH", sector: "Healthcare"}
@@ -87,7 +87,7 @@ symbols:
   - {symbol: "NATIONALUM", sector: "Metals"}
   - {symbol: "NMDC", sector: "Metals"}
   - {symbol: "HINDCOPPER", sector: "Metals"}
-  - {symbol: "JSPL", sector: "Metals"}
+  - {symbol: "JINDALSTEL", sector: "Metals"}
 
   # Consumer / FMCG
   - {symbol: "DABUR", sector: "FMCG"}
@@ -125,11 +125,11 @@ symbols:
   - {symbol: "ACC", sector: "Cement"}
   - {symbol: "SHREECEM", sector: "Cement"}
   - {symbol: "JKCEMENT", sector: "Cement"}
-  - {symbol: "DALMIACEM", sector: "Cement"}
+  - {symbol: "RAMCOCEM", sector: "Cement"}
 
   # Chemicals / Specialty
   - {symbol: "PIIND", sector: "Chemicals"}
   - {symbol: "DEEPAKNTR", sector: "Chemicals"}
   - {symbol: "SRF", sector: "Chemicals"}
-  - {symbol: "AARTI", sector: "Chemicals"}
+  - {symbol: "AARTIIND", sector: "Chemicals"}
   - {symbol: "CLEAN", sector: "Chemicals"}
