@@ -1335,14 +1335,18 @@ class TradingEngine:
 
     def load_instruments(self) -> None:
         """Load Kite instrument tokens for the watchlist."""
+        from src.data.kite_client import get_instruments
         try:
-            instruments = self._kite_client.get_instruments()
+            symbol_to_token = get_instruments(self._kite_client.kite, exchange="NSE")
             for symbol in self._watchlist:
-                for inst in instruments:
-                    if inst.get("tradingsymbol") == symbol and inst.get("exchange") == "NSE":
-                        self._instrument_tokens[symbol] = inst["instrument_token"]
-                        break
-            logger.info("instruments_loaded", count=len(self._instrument_tokens))
+                token = symbol_to_token.get(symbol)
+                if token is not None:
+                    self._instrument_tokens[symbol] = token
+            logger.info(
+                "instruments_loaded",
+                count=len(self._instrument_tokens),
+                missing=[s for s in self._watchlist if s not in self._instrument_tokens],
+            )
         except Exception as e:
             logger.error("instruments_load_error", error=str(e))
 
