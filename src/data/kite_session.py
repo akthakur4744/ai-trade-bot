@@ -48,7 +48,7 @@ def get_active_session(session: Session) -> Optional[KiteSession]:
     if not token or not exp_raw:
         return None
     try:
-        exp = datetime.fromisoformat(exp_raw)
+        exp = datetime.fromisoformat(exp_raw.replace("Z", "+00:00"))
         if exp.tzinfo is None:
             exp = exp.replace(tzinfo=timezone.utc)
     except ValueError:
