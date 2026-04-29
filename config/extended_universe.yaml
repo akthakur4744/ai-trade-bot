@@ -1,0 +1,135 @@
+# Extended candidate universe for dynamic stock selection
+# Scored each trading day; top 20 supplement the 30 core watchlist stocks.
+# All symbols are NSE-listed, F&O-eligible or high-volume midcaps.
+
+symbols:
+  # Banking
+  - {symbol: "INDUSINDBK", sector: "Banking"}
+  - {symbol: "FEDERALBNK", sector: "Banking"}
+  - {symbol: "BANDHANBNK", sector: "Banking"}
+  - {symbol: "RBLBANK", sector: "Banking"}
+  - {symbol: "CANBK", sector: "Banking"}
+  - {symbol: "BANKBARODA", sector: "Banking"}
+  - {symbol: "IDFCFIRSTB", sector: "Banking"}
+  - {symbol: "AUBANK", sector: "Banking"}
+  - {symbol: "KARURVYSYA", sector: "Banking"}
+  - {symbol: "DCBBANK", sector: "Banking"}
+
+  # Finance / NBFC
+  - {symbol: "HDFCLIFE", sector: "Finance"}
+  - {symbol: "SBILIFE", sector: "Finance"}
+  - {symbol: "ICICIPRULI", sector: "Finance"}
+  - {symbol: "MUTHOOTFIN", sector: "Finance"}
+  - {symbol: "CHOLAFIN", sector: "Finance"}
+  - {symbol: "MANAPPURAM", sector: "Finance"}
+  - {symbol: "LICHOUSING", sector: "Finance"}
+  - {symbol: "M&MFIN", sector: "Finance"}
+  - {symbol: "POONAWALLA", sector: "Finance"}
+  - {symbol: "IIFL", sector: "Finance"}
+
+  # IT / Technology
+  - {symbol: "MPHASIS", sector: "IT"}
+  - {symbol: "LTIM", sector: "IT"}
+  - {symbol: "PERSISTENT", sector: "IT"}
+  - {symbol: "COFORGE", sector: "IT"}
+  - {symbol: "LTTS", sector: "IT"}
+  - {symbol: "OFSS", sector: "IT"}
+  - {symbol: "KPITTECH", sector: "IT"}
+  - {symbol: "TANLA", sector: "IT"}
+  - {symbol: "ZOMATO", sector: "IT"}
+  - {symbol: "NAUKRI", sector: "IT"}
+
+  # Auto & Auto-Ancillary
+  - {symbol: "HEROMOTOCO", sector: "Auto"}
+  - {symbol: "BAJAJ-AUTO", sector: "Auto"}
+  - {symbol: "EICHERMOT", sector: "Auto"}
+  - {symbol: "TVSMOTOR", sector: "Auto"}
+  - {symbol: "MOTHERSON", sector: "Auto"}
+  - {symbol: "BOSCH", sector: "Auto"}
+  - {symbol: "MRF", sector: "Auto"}
+  - {symbol: "APOLLOTYRE", sector: "Auto"}
+  - {symbol: "BALKRISIND", sector: "Auto"}
+  - {symbol: "EXIDEIND", sector: "Auto"}
+
+  # Pharma / Healthcare
+  - {symbol: "DRREDDY", sector: "Pharma"}
+  - {symbol: "CIPLA", sector: "Pharma"}
+  - {symbol: "DIVISLAB", sector: "Pharma"}
+  - {symbol: "AUROPHARMA", sector: "Pharma"}
+  - {symbol: "TORNTPHARM", sector: "Pharma"}
+  - {symbol: "ALKEM", sector: "Pharma"}
+  - {symbol: "BIOCON", sector: "Pharma"}
+  - {symbol: "IPCA", sector: "Pharma"}
+  - {symbol: "APOLLOHOSP", sector: "Healthcare"}
+  - {symbol: "FORTIS", sector: "Healthcare"}
+  - {symbol: "MAXHEALTH", sector: "Healthcare"}
+
+  # Energy / Oil & Gas
+  - {symbol: "BPCL", sector: "Energy"}
+  - {symbol: "IOC", sector: "Energy"}
+  - {symbol: "HINDPETRO", sector: "Energy"}
+  - {symbol: "GAIL", sector: "Energy"}
+  - {symbol: "PETRONET", sector: "Energy"}
+  - {symbol: "OIL", sector: "Energy"}
+
+  # Power
+  - {symbol: "TATAPOWER", sector: "Power"}
+  - {symbol: "ADANIGREEN", sector: "Power"}
+  - {symbol: "NHPC", sector: "Power"}
+  - {symbol: "SJVN", sector: "Power"}
+  - {symbol: "CESC", sector: "Power"}
+
+  # Metals & Mining
+  - {symbol: "HINDALCO", sector: "Metals"}
+  - {symbol: "JSWSTEEL", sector: "Metals"}
+  - {symbol: "SAIL", sector: "Metals"}
+  - {symbol: "VEDL", sector: "Metals"}
+  - {symbol: "NATIONALUM", sector: "Metals"}
+  - {symbol: "NMDC", sector: "Metals"}
+  - {symbol: "HINDCOPPER", sector: "Metals"}
+  - {symbol: "JSPL", sector: "Metals"}
+
+  # Consumer / FMCG
+  - {symbol: "DABUR", sector: "FMCG"}
+  - {symbol: "MARICO", sector: "FMCG"}
+  - {symbol: "BRITANNIA", sector: "FMCG"}
+  - {symbol: "COLPAL", sector: "FMCG"}
+  - {symbol: "GODREJCP", sector: "FMCG"}
+  - {symbol: "EMAMILTD", sector: "FMCG"}
+  - {symbol: "TATACONSUM", sector: "FMCG"}
+  - {symbol: "VBL", sector: "FMCG"}
+  - {symbol: "DMART", sector: "Consumer"}
+  - {symbol: "TRENT", sector: "Consumer"}
+
+  # Capital Goods / Infrastructure
+  - {symbol: "SIEMENS", sector: "Capital Goods"}
+  - {symbol: "ABB", sector: "Capital Goods"}
+  - {symbol: "BHEL", sector: "Capital Goods"}
+  - {symbol: "HAVELLS", sector: "Capital Goods"}
+  - {symbol: "POLYCAB", sector: "Capital Goods"}
+  - {symbol: "CUMMINSIND", sector: "Capital Goods"}
+  - {symbol: "BEL", sector: "Capital Goods"}
+  - {symbol: "HAL", sector: "Capital Goods"}
+  - {symbol: "ADANIPORTS", sector: "Infrastructure"}
+  - {symbol: "IRCTC", sector: "Infrastructure"}
+
+  # Real Estate
+  - {symbol: "DLF", sector: "Real Estate"}
+  - {symbol: "GODREJPROP", sector: "Real Estate"}
+  - {symbol: "OBEROIRLTY", sector: "Real Estate"}
+  - {symbol: "PRESTIGE", sector: "Real Estate"}
+  - {symbol: "PHOENIXLTD", sector: "Real Estate"}
+
+  # Cement
+  - {symbol: "AMBUJACEM", sector: "Cement"}
+  - {symbol: "ACC", sector: "Cement"}
+  - {symbol: "SHREECEM", sector: "Cement"}
+  - {symbol: "JKCEMENT", sector: "Cement"}
+  - {symbol: "DALMIACEM", sector: "Cement"}
+
+  # Chemicals / Specialty
+  - {symbol: "PIIND", sector: "Chemicals"}
+  - {symbol: "DEEPAKNTR", sector: "Chemicals"}
+  - {symbol: "SRF", sector: "Chemicals"}
+  - {symbol: "AARTI", sector: "Chemicals"}
+  - {symbol: "CLEAN", sector: "Chemicals"}
